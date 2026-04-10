@@ -30,7 +30,6 @@ let combinedInventory = {};
 let entityData = {};
 let connectionStatus = 'disconnected';
 let unpowerTimers = {};
-let pollTimer = null;
 let connectionError = null;
 let pairing = false;
 let pushClient = null;
@@ -214,8 +213,6 @@ function fetchEntityInfo(entityId) {
 
 function markConnectionLost() {
     console.warn('Connection appears lost, disconnecting');
-    clearInterval(pollTimer);
-    pollTimer = null;
     if (rustplus) { try { rustplus.disconnect(); } catch (_) {} rustplus = null; }
     connectionStatus = 'disconnected';
     connectionError = 'Connection lost';
@@ -300,14 +297,6 @@ async function connectToServer(cfg) {
 
         await refreshAllEntities();
         broadcastState();
-
-        clearInterval(pollTimer);
-        pollTimer = setInterval(async () => {
-            if (connectionStatus === 'connected') {
-                await refreshAllEntities();
-                broadcastState();
-            }
-        }, 5000);
     });
 
     rustplus.on('message', async (message) => {
@@ -348,8 +337,6 @@ async function connectToServer(cfg) {
     rustplus.on('disconnected', () => {
         console.log('Disconnected from Rust+ server');
         connectionStatus = 'disconnected';
-        clearInterval(pollTimer);
-        pollTimer = null;
         Object.values(unpowerTimers).forEach(clearTimeout);
         unpowerTimers = {};
         broadcastState();
@@ -390,8 +377,6 @@ app.post('/api/config', (req, res) => {
     if (!hasConnection) {
         // Config is now incomplete — disconnect if needed, always broadcast so client reflects new config
         if (connectionStatus === 'connected' || connectionStatus === 'connecting') {
-            clearInterval(pollTimer);
-            pollTimer = null;
             if (rustplus) { try { rustplus.disconnect(); } catch (_) {} rustplus = null; }
             connectionStatus = 'disconnected';
             connectionError = null;
@@ -420,8 +405,6 @@ app.post('/api/connect', async (req, res) => {
 });
 
 app.post('/api/disconnect', (_, res) => {
-    clearInterval(pollTimer);
-    pollTimer = null;
     if (rustplus) {
         try { rustplus.disconnect(); } catch (_) {}
         rustplus = null;

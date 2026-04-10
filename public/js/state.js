@@ -4,9 +4,6 @@ let ws = null;
 let currentView = 'grid';
 let wsReconnectTimer = null;
 let autoReconnectTimer = null;
-let pollBarStart = null;
-
-const POLL_INTERVAL = 5000;
 const RECONNECT_INTERVAL = 5000;
 
 const sessionStart = new Date().toISOString();

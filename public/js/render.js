@@ -230,7 +230,7 @@ function renderStatus() {
   text.textContent = labels[displayAs] || status;
 
   refreshBtn.disabled = status !== 'connected';
-  if (status !== 'connected') { pollBarStart = null; refreshBtn.style.background = ''; }
+  if (status !== 'connected') { refreshBtn.style.background = ''; }
 
   const connected = status === 'connected';
   document.getElementById('statsBar').style.display = connected ? '' : 'none';

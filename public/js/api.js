@@ -1,27 +1,3 @@
-// ── Poll bar ──────────────────────────────────────────────────────────────────
-function animatePollBar() {
-  const btn = document.getElementById('refreshBtn');
-  if (!pollBarStart || state.status !== 'connected') {
-    btn.style.background = '';
-    return;
-  }
-  const elapsed = Date.now() - pollBarStart;
-  const pct = Math.min((elapsed / POLL_INTERVAL) * 100, 100);
-  btn.style.background = `conic-gradient(var(--accent) ${pct}%, var(--surface2) ${pct}%)`;
-  if (pct < 100) requestAnimationFrame(animatePollBar);
-}
-
-function resetPollBar() {
-  pollBarStart = Date.now();
-  requestAnimationFrame(animatePollBar);
-  // Restart bar locally every poll interval so it doesn't stick at 100%
-  // while waiting for the server to respond
-  clearTimeout(resetPollBar._timer);
-  resetPollBar._timer = setTimeout(() => {
-    if (state.status === 'connected') resetPollBar();
-  }, POLL_INTERVAL);
-}
-
 function flashReconnectDot() {
   const dot = document.querySelector('#statusBadge .status-dot');
   if (dot) {
@@ -44,7 +20,6 @@ function connectWS() {
       render();
       if (state.status === 'connected') {
         hasBeenConnected = true;
-        resetPollBar();
         clearTimeout(autoReconnectTimer);
       } else if (state.status === 'disconnected') {
         scheduleAutoReconnect();
