@@ -1,5 +1,5 @@
 {
-  "name": "storage-monitor-dashboard",
+  "name": "rust-storage-dashboard",
   "version": "1.0.0",
   "description": "Rust+ storage monitor combined inventory dashboard",
   "main": "server.js",

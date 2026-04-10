@@ -13,7 +13,8 @@ const wss = new WebSocket.Server({ server });
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const CONFIG_PATH = path.join(__dirname, 'config.json');
+const DATA_DIR = process.env.RUST_STORAGE_DASHBOARD_DATA_DIR || __dirname;
+const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const ITEMS_PATH = path.join(__dirname, 'items.json');
 
 let config = {};
@@ -509,7 +510,7 @@ wss.on('connection', (ws) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Storage Monitor Dashboard → http://localhost:${PORT}`);
+    console.log(`Rust Storage Dashboard → http://localhost:${PORT}`);
     // Auto-start FCM pairing listener if credentials are available
     if (config.gcmAndroidId && config.gcmSecurityToken) {
         startPairing().catch(e => console.warn('Pairing listener failed to start:', e.message));
