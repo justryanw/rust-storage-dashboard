@@ -355,6 +355,7 @@
     }
 
     .monitor-items { padding: 10px 16px; max-height: 260px; overflow-y: auto; }
+    .group-items { padding: 10px 16px; max-height: 260px; overflow-y: auto; }
     .monitor-item {
       display: flex;
       align-items: center;
@@ -1107,7 +1108,7 @@
     if (groupNames.length === 0) { section.style.display = 'none'; return; }
     section.style.display = '';
 
-    grid.innerHTML = groupNames.map(groupName => {
+    const groupCards = groupNames.map(groupName => {
       const members = groupMap[groupName];
       const mergedItems = {};
       let totalUsed = 0, totalCap = 0;
@@ -1140,7 +1141,7 @@
             <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
             <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
           </div>`).join('');
-      return `
+      const html = `
         <div class="group-card" id="${gid}">
           <div class="group-header" onclick="toggleGroup('${gid}')">
             <span class="group-name">🗃 ${escHtml(groupName)}</span>
@@ -1154,7 +1155,9 @@
             ${itemsHTML || '<div style="color:var(--text-muted);font-size:0.82rem;padding:4px 0">Empty</div>'}
           </div>
         </div>`;
-    }).join('');
+      return { id: gid, html };
+    });
+    updateGrid(grid, groupCards);
   }
 
   function toggleGroup(gid) {
@@ -1199,7 +1202,7 @@
           <button class="monitor-delete" onclick="removeMonitor(event,'${m.entityId}')" title="Remove monitor">🗑</button>
         </div>
         ${!m.error && !isUnpowered && cap ? `
-          <div style="padding:0 16px 6px">
+          <div class="capacity-bar-wrap" style="padding:0 16px 6px">
             <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div>
           </div>` : ''}
         <div class="monitor-items">
@@ -1208,13 +1211,76 @@
       </div>`;
   }
 
+  function patchInner(existingEl, newEl, selector) {
+    const a = existingEl.querySelector(selector);
+    const b = newEl.querySelector(selector);
+    if (a && b && a.innerHTML !== b.innerHTML) a.innerHTML = b.innerHTML;
+  }
+
+  function patchAttr(existingEl, newEl, selector, attr) {
+    const a = existingEl.querySelector(selector);
+    const b = newEl.querySelector(selector);
+    if (a && b && a.getAttribute(attr) !== b.getAttribute(attr)) a.setAttribute(attr, b.getAttribute(attr));
+  }
+
+  const cardCache = {};
+
+  function updateGrid(grid, cards) {
+    const newMap = new Map(cards.map(c => [c.id, c.html]));
+
+    // Remove cards no longer present
+    [...grid.children].forEach(el => {
+      if (!newMap.has(el.id)) { delete cardCache[el.id]; el.remove(); }
+    });
+
+    cards.forEach((card, i) => {
+      let el = document.getElementById(card.id);
+      if (el) {
+        // Compare against last generated HTML (not browser-normalized outerHTML)
+        // so unchanged data never triggers DOM mutations
+        if (cardCache[card.id] !== card.html) {
+          cardCache[card.id] = card.html;
+          const tmp = document.createElement('div');
+          tmp.innerHTML = card.html;
+          const newEl = tmp.firstElementChild;
+          // Patch inner sections — never recreate the scroll container
+          patchInner(el, newEl, '.monitor-items');
+          patchInner(el, newEl, '.group-items');
+          // Full header replacement for status badge / name changes
+          const oldHeader = el.querySelector('.monitor-header, .group-header');
+          const newHeader = newEl.querySelector('.monitor-header, .group-header');
+          if (oldHeader && newHeader && oldHeader.innerHTML !== newHeader.innerHTML) {
+            oldHeader.innerHTML = newHeader.innerHTML;
+          }
+          // Capacity/group bar
+          const oldBar = el.querySelector('.group-bar, .capacity-bar-wrap');
+          const newBar = newEl.querySelector('.group-bar, .capacity-bar-wrap');
+          if ((oldBar?.outerHTML || '') !== (newBar?.outerHTML || '')) {
+            if (oldBar && newBar) oldBar.replaceWith(newBar);
+            else if (oldBar) oldBar.remove();
+            else if (newBar) el.insertBefore(newBar, el.querySelector('.monitor-items, .group-items'));
+          }
+        }
+      } else {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = card.html;
+        cardCache[card.id] = card.html;
+        grid.insertBefore(tmp.firstElementChild, grid.children[i] || null);
+      }
+      // Ensure correct order
+      if (grid.children[i]?.id !== card.id) {
+        grid.insertBefore(document.getElementById(card.id), grid.children[i] || null);
+      }
+    });
+  }
+
   function renderSection(sectionId, gridId, entries, allEntries) {
     const section = document.getElementById(sectionId);
     const grid = document.getElementById(gridId);
     if (allEntries.length === 0 || state.status !== 'connected') { section.style.display = 'none'; return; }
     section.style.display = '';
     const query = document.getElementById('searchInput').value.toLowerCase().trim();
-    grid.innerHTML = entries.map(m => monitorCardHTML(m, query)).join('');
+    updateGrid(grid, entries.map(m => ({ id: `mc-${m.entityId}`, html: monitorCardHTML(m, query) })));
   }
 
   function filteredMonitors(monitors) {
