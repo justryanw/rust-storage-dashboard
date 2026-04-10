@@ -90,12 +90,13 @@ function tableRowHTML(item) {
     </tr>`;
 }
 
-function monitorCardHTML(m, query = '') {
+function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
   const usedSlots = (m.items || []).length;
   const cap = m.capacity || 0;
   const pct = cap ? Math.round((usedSlots / cap) * 100) : 0;
   const isRemoved = m.error === 'not_found';
   const isUnpowered = m.unpowered;
+  const groupName = ((state.config || {}).entityGroups || {})[String(m.entityId)] || null;
   const mergedItems = {};
   for (const item of (m.items || [])) {
     const key = String(item.itemId);
@@ -119,12 +120,17 @@ function monitorCardHTML(m, query = '') {
     ? `<span class="monitor-error">⚠ ${escHtml(m.error)}</span>`
     : `<span class="monitor-capacity">${usedSlots}/${cap} slots (${pct}%)</span>`;
   return `
-    <div class="monitor-card" id="mc-${m.entityId}" ${isRemoved ? 'style="opacity:0.5"' : ''}>
-      <div class="monitor-header" onclick="toggleMonitor('${m.entityId}')">
-        <span class="monitor-name">📦 ${escHtml(m.label || m.entityId)}</span>
-        ${statusBadge}
-        <button class="monitor-edit" onclick="editMonitor(event,'${m.entityId}')" title="Edit monitor">✏️</button>
-        <button class="monitor-delete" onclick="removeMonitor(event,'${m.entityId}')" title="Remove monitor">🗑</button>
+    <div class="monitor-card" id="${cardId}" ${isRemoved ? 'style="opacity:0.5"' : ''}>
+      <div class="monitor-header" onclick="toggleMonitor(event)">
+        <div class="monitor-header-top">
+          <span class="monitor-name">📦 ${escHtml(m.label || m.entityId)}</span>
+          <button class="monitor-edit" onclick="editMonitor(event,'${m.entityId}')" title="Edit monitor">✏️</button>
+          <button class="monitor-delete" onclick="removeMonitor(event,'${m.entityId}')" title="Remove monitor">🗑</button>
+        </div>
+        <div class="monitor-header-meta">
+          ${groupName ? `<span class="monitor-group-tag">${escHtml(groupName)}</span>` : ''}
+          ${statusBadge}
+        </div>
       </div>
       ${!m.error && !isUnpowered && cap ? `
         <div class="capacity-bar-wrap" style="padding:0 16px 6px">
@@ -474,7 +480,10 @@ function renderSection(sectionId, gridId, entries, allEntries) {
   if (allEntries.length === 0 || entries.length === 0 || state.status !== 'connected') { section.style.display = 'none'; return; }
   section.style.display = '';
   const query = document.getElementById('searchInput').value.toLowerCase().trim();
-  updateGrid(grid, entries.map(m => ({ id: `mc-${m.entityId}`, html: monitorCardHTML(m, query) })));
+  updateGrid(grid, entries.map(m => {
+    const cardId = `${gridId}-${m.entityId}`;
+    return { id: cardId, html: monitorCardHTML(m, query, cardId) };
+  }));
 }
 
 function onSearch() {
@@ -499,7 +508,8 @@ function renderUngrouped() {
 }
 
 function renderMonitors() {
-  const all = Object.values(state.monitors || {});
+  const entityGroups = (state.config || {}).entityGroups || {};
+  const all = Object.values(state.monitors || {}).filter(m => entityGroups[m.entityId]);
   renderSection('monitorsSection', 'monitorsGrid', filteredMonitors(all), all);
 }
 
@@ -517,9 +527,8 @@ function showBanner(msg) {
   else { el.classList.remove('show'); }
 }
 
-function toggleMonitor(id) {
-  const card = document.getElementById(`mc-${id}`);
-  if (card) card.classList.toggle('monitor-collapsed');
+function toggleMonitor(event) {
+  event.currentTarget.closest('.monitor-card').classList.toggle('monitor-collapsed');
 }
 
 function editMonitor(event, id) {

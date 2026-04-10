@@ -288,12 +288,12 @@ textarea { min-height: 70px; resize: vertical; }
 }
 
 .monitor-header {
-  padding: 12px 16px;
+  padding: 10px 16px;
   background: var(--surface2);
   border-bottom: 1px solid var(--border);
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 5px;
   cursor: pointer;
 }
 
@@ -301,7 +301,19 @@ textarea { min-height: 70px; resize: vertical; }
 .monitor-header:hover .monitor-delete,
 .monitor-header:hover .monitor-edit { opacity: 1; }
 
-.monitor-name { font-weight: 700; font-size: 0.9rem; flex: 1; }
+.monitor-header-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monitor-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monitor-name { font-weight: 700; font-size: 0.9rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .monitor-delete {
   opacity: 0;
   background: none;
@@ -317,6 +329,17 @@ textarea { min-height: 70px; resize: vertical; }
 .monitor-delete:hover { background: rgba(248,113,113,0.15); }
 .monitor-edit { opacity: 0; background: none; border: none; cursor: pointer; font-size: 0.9rem; padding: 3px 5px; border-radius: 4px; line-height: 1; }
 .monitor-edit:hover { background: rgba(232,98,42,0.15); }
+
+.monitor-group-tag {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--accent2);
+  background: rgba(240,149,58,0.12);
+  border: 1px solid rgba(240,149,58,0.3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
 
 .monitor-capacity {
   font-size: 0.75rem;
