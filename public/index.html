@@ -246,6 +246,14 @@
 
     .item-card:hover { border-color: var(--accent); transform: translateY(-1px); }
 
+    .item-icon {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      image-rendering: pixelated;
+      flex-shrink: 0;
+    }
+
     .item-name {
       font-size: 0.85rem;
       font-weight: 600;
@@ -390,11 +398,14 @@
     .monitor-items { padding: 10px 16px; max-height: 260px; overflow-y: auto; }
     .monitor-item {
       display: flex;
-      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
       padding: 5px 0;
       border-bottom: 1px solid var(--border);
       font-size: 0.82rem;
     }
+    .monitor-item-name { flex: 1; }
+    .monitor-item img { width: 24px; height: 24px; object-fit: contain; image-rendering: pixelated; flex-shrink: 0; }
     .monitor-item:last-child { border-bottom: none; }
     .monitor-item-qty { font-weight: 700; color: var(--accent2); }
 
@@ -459,6 +470,13 @@
     .refresh-btn:hover { opacity: 0.8; }
     .refresh-btn:active { opacity: 0.6; }
     .refresh-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Source list (in cards/table) ── */
+    .source-list { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; align-items: center; }
+    .source-row { display: inline-flex; align-items: center; gap: 3px; font-size: 0.7rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+    .source-row-name { color: var(--text-muted); }
+    .source-row-qty { color: var(--accent2); font-weight: 600; }
+    .source-more { font-size: 0.68rem; color: var(--text-muted); white-space: nowrap; }
 
     /* ── Modal ── */
     .modal-overlay {
@@ -568,6 +586,19 @@
       <div class="stat-value" id="statMonitors">—</div>
       <div class="stat-sub">storage monitors</div>
     </div>
+    <div class="stat-card" id="statSlotsCard" style="grid-column: span 2">
+      <div class="stat-label">Slots Remaining</div>
+      <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <div class="stat-value" id="statSlotsRemaining">—</div>
+        <div class="stat-sub" id="statSlotsPct"></div>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:4px;margin-bottom:8px">
+        <span class="stat-sub" id="statSlotsSub"></span>
+      </div>
+      <div style="height:6px;background:var(--surface2);border-radius:3px;overflow:hidden">
+        <div id="statSlotsBar" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 0.4s"></div>
+      </div>
+    </div>
     <div class="stat-card">
       <div class="stat-label">Last Update</div>
       <div class="stat-value" id="statTime" style="font-size:1rem">—</div>
@@ -603,6 +634,23 @@
     <div class="monitors-grid" id="monitorsGrid"></div>
   </div>
 
+</div>
+
+<!-- Item detail modal -->
+<div class="modal-overlay" id="itemModal" onclick="if(event.target===this)closeItemModal()">
+  <div class="modal" style="width:420px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+      <img id="itemModalIcon" src="" width="40" height="40" style="object-fit:contain;image-rendering:pixelated" onerror="this.style.display='none'" />
+      <div>
+        <h2 id="itemModalName" style="margin-bottom:2px"></h2>
+        <p id="itemModalTotal" style="margin:0"></p>
+      </div>
+    </div>
+    <div id="itemModalList" style="margin-top:12px;display:flex;flex-direction:column;gap:4px;max-height:400px;overflow-y:auto"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeItemModal()">Close</button>
+    </div>
+  </div>
 </div>
 
 <!-- Pair name modal -->
@@ -848,11 +896,20 @@
     const items = Object.values(inv);
     const uniqueCount = items.length;
     const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+    const monitors = Object.values(state.monitors || {}).filter(m => !m.error && !m.unpowered);
     const monitorCount = Object.keys(state.monitors || {}).length;
+    const usedSlots = monitors.reduce((s, m) => s + (m.items || []).length, 0);
+    const totalSlots = monitors.reduce((s, m) => s + (m.capacity || 0), 0);
 
     document.getElementById('statItems').textContent = uniqueCount > 0 ? uniqueCount.toLocaleString() : '—';
     document.getElementById('statTotal').textContent = totalQty > 0 ? fmt(totalQty) : '—';
     document.getElementById('statMonitors').textContent = monitorCount > 0 ? monitorCount : '—';
+    const pct = totalSlots > 0 ? Math.round((usedSlots / totalSlots) * 100) : 0;
+    const remaining = totalSlots - usedSlots;
+    document.getElementById('statSlotsRemaining').textContent = totalSlots > 0 ? remaining.toLocaleString() : '—';
+    document.getElementById('statSlotsPct').textContent = totalSlots > 0 ? `${100 - pct}% free` : '';
+    document.getElementById('statSlotsSub').textContent = totalSlots > 0 ? `${usedSlots.toLocaleString()} used of ${totalSlots.toLocaleString()} total` : '';
+    document.getElementById('statSlotsBar').style.width = `${pct}%`;
 
     if (state.lastUpdate) {
       const d = new Date(state.lastUpdate);
@@ -909,7 +966,6 @@
                 <th onclick="cycleSortTable('name')">Item <span class="sort-arrow" id="th-name"></span></th>
                 <th onclick="cycleSortTable('qty-desc')">Quantity <span class="sort-arrow" id="th-qty">↓</span></th>
                 <th>Monitors</th>
-                <th>Type</th>
               </tr>
             </thead>
             <tbody>${items.map(tableRowHTML).join('')}</tbody>
@@ -918,35 +974,53 @@
     }
   }
 
-  function itemCardHTML(item) {
-    const monitorNames = (item.sources || []).map(id => {
-      const m = (state.monitors || {})[id];
-      return m ? m.label : `#${id}`;
-    }).join(', ');
+  function itemIconHTML(shortname, size = 36) {
+    if (!shortname) return '';
+    return `<img class="item-icon" src="https://wiki.rustclash.com/img/items180/${escHtml(shortname)}.png" width="${size}" height="${size}" alt="" loading="lazy" onerror="this.style.display='none'" />`;
+  }
 
+  function itemSources(item) {
+    return (item.sources || [])
+      .map(id => {
+        const m = (state.monitors || {})[id];
+        const qty = (m?.items || []).filter(i => i.itemId === item.itemId).reduce((s, i) => s + i.quantity, 0);
+        return { id, label: m?.label || `#${id}`, qty };
+      })
+      .sort((a, b) => b.qty - a.qty);
+  }
+
+  function sourceListHTML(sources, max) {
+    const shown = sources.slice(0, max);
+    const rest = sources.length - max;
+    return `<div class="source-list">
+      ${shown.map(s => `<span class="source-row"><span class="source-row-name">${escHtml(s.label)}</span><span class="source-row-qty">×${fmt(s.qty)}</span></span>`).join('')}
+      ${rest > 0 ? `<span class="source-more">+${rest}</span>` : ''}
+    </div>`;
+  }
+
+  function itemCardHTML(item) {
+    const sources = itemSources(item);
     return `
-      <div class="item-card" title="Item ID: ${item.itemId}">
-        <div class="item-name">${escHtml(item.name)}</div>
-        <div class="item-qty">${fmt(item.quantity)}</div>
-        <div class="item-meta">
-          <span>📦 ${item.sources.length} monitor${item.sources.length !== 1 ? 's' : ''}</span>
-          ${item.isBlueprint ? '<span class="item-bp">BP</span>' : ''}
+      <div class="item-card" style="cursor:pointer" onclick="showItemModal(${item.itemId})" title="Click to see all locations">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+          ${itemIconHTML(item.shortname)}
+          <div style="min-width:0">
+            <div class="item-name">${escHtml(item.name)}</div>
+            <div class="item-qty">${fmt(item.quantity)}</div>
+          </div>
         </div>
+        ${item.isBlueprint ? '<div style="margin-bottom:4px"><span class="item-bp">BP</span></div>' : ''}
+        ${sourceListHTML(sources, 3)}
       </div>`;
   }
 
   function tableRowHTML(item) {
-    const monitorNames = (item.sources || []).map(id => {
-      const m = (state.monitors || {})[id];
-      return m ? m.label : `#${id}`;
-    }).join(', ');
-
+    const sources = itemSources(item);
     return `
-      <tr title="Item ID: ${item.itemId}">
-        <td>${escHtml(item.name)}</td>
+      <tr style="cursor:pointer" onclick="showItemModal(${item.itemId})" title="Click to see all locations">
+        <td style="display:flex;align-items:center;gap:8px">${itemIconHTML(item.shortname, 24)}${escHtml(item.name)}${item.isBlueprint ? ' <span class="item-bp">BP</span>' : ''}</td>
         <td class="qty-cell">${item.quantity.toLocaleString()}</td>
-        <td style="color:var(--text-muted);font-size:0.78rem">${escHtml(monitorNames)}</td>
-        <td>${item.isBlueprint ? '<span class="item-bp">Blueprint</span>' : 'Item'}</td>
+        <td>${sourceListHTML(sources, 2)}</td>
       </tr>`;
   }
 
@@ -986,7 +1060,8 @@
         .sort((a, b) => b.quantity - a.quantity)
         .map(item => `
           <div class="monitor-item">
-            <span>${escHtml(getItemName(item.itemId))}</span>
+            ${itemIconHTML(getItemShortname(item.itemId), 24)}
+            <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
             <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
           </div>`)
         .join('');
@@ -1030,17 +1105,45 @@
 
   // ── Item name lookup (client-side fallback for display) ───────────────────
   const itemNameCache = {};
-  function getItemName(itemId) {
-    // Names come from the server via state; this is only called for monitor cards
-    // where the item may not be in the merged inventory
+  function getInvItem(itemId) {
     const inv = state.inventory || {};
-    const found = Object.values(inv).find(i => i.itemId === itemId);
+    return Object.values(inv).find(i => i.itemId === itemId) || null;
+  }
+
+  function getItemName(itemId) {
+    const found = getInvItem(itemId);
     if (found) return found.name;
     return itemNameCache[itemId] || `Item #${itemId}`;
   }
 
+  function getItemShortname(itemId) {
+    return getInvItem(itemId)?.shortname || null;
+  }
+
   function escHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Item detail modal ─────────────────────────────────────────────────────
+  function showItemModal(itemId) {
+    const item = Object.values(state.inventory || {}).find(i => i.itemId === itemId);
+    if (!item) return;
+    const sources = itemSources(item);
+    const icon = document.getElementById('itemModalIcon');
+    icon.src = item.shortname ? `https://wiki.rustclash.com/img/items180/${escHtml(item.shortname)}.png` : '';
+    icon.style.display = item.shortname ? '' : 'none';
+    document.getElementById('itemModalName').textContent = item.name;
+    document.getElementById('itemModalTotal').textContent = `${item.quantity.toLocaleString()} total across ${sources.length} monitor${sources.length !== 1 ? 's' : ''}`;
+    document.getElementById('itemModalList').innerHTML = sources.map(s => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--radius)">
+        <span style="font-size:0.88rem">${escHtml(s.label)}</span>
+        <span style="font-weight:700;color:var(--accent2)">${s.qty.toLocaleString()}</span>
+      </div>`).join('');
+    document.getElementById('itemModal').classList.add('show');
+  }
+
+  function closeItemModal() {
+    document.getElementById('itemModal').classList.remove('show');
   }
 
   // ── Pair name modal ───────────────────────────────────────────────────────

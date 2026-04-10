@@ -47,7 +47,13 @@ try {
 
 function getItemName(itemId) {
     const id = String(itemId);
-    return itemNames[id] || `Item #${itemId}`;
+    const entry = itemNames[id];
+    return (entry && entry.name) || entry || `Item #${itemId}`;
+}
+
+function getItemShortname(itemId) {
+    const entry = itemNames[String(itemId)];
+    return (entry && entry.shortname) || null;
 }
 
 function broadcastState() {
@@ -158,6 +164,7 @@ function mergeInventory() {
                 merged[id] = {
                     itemId: item.itemId,
                     name: getItemName(item.itemId),
+                    shortname: getItemShortname(item.itemId),
                     quantity: 0,
                     isBlueprint: item.itemIsBlueprint,
                     sources: [],
