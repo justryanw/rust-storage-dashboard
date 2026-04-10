@@ -376,6 +376,13 @@
     .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
     .empty-state h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
     .empty-state p { font-size: 0.88rem; }
+    .reconnect-icon { margin-bottom: 16px; display: inline-block; }
+    .pulse-ring { animation: ring-pulse 2s ease-in-out infinite; }
+    @keyframes ring-pulse {
+      0% { transform: scale(0.92); opacity: 0.7; transform-origin: center; }
+      50% { transform: scale(1.08); opacity: 0.2; transform-origin: center; }
+      100% { transform: scale(0.92); opacity: 0.7; transform-origin: center; }
+    }
 
     /* ── Error banner ── */
     .error-banner {
@@ -647,11 +654,12 @@
 
   function flashReconnectDot() {
     const dot = document.querySelector('#statusBadge .status-dot');
-    if (!dot) return;
-    dot.classList.remove('flash');
-    void dot.offsetWidth; // force reflow to restart animation
-    dot.classList.add('flash');
-    dot.addEventListener('animationend', () => dot.classList.remove('flash'), { once: true });
+    if (dot) {
+      dot.classList.remove('flash');
+      void dot.offsetWidth;
+      dot.classList.add('flash');
+      dot.addEventListener('animationend', () => dot.classList.remove('flash'), { once: true });
+    }
   }
   const sessionStart = new Date().toISOString();
   let lastHandledPairTimestamp = null;
@@ -879,6 +887,41 @@
 
   function renderInventory() {
     const container = document.getElementById('inventoryContainer');
+    if (state.status !== 'connected') {
+      const cfg = state.config || {};
+      const hasConfig = cfg.serverIp && cfg.appPort && cfg.steamId && cfg.playerToken;
+      const reconnecting = (state.status === 'disconnected' || state.status === 'connecting') && hasConfig;
+      const wantKey = reconnecting ? 'reconnecting' : 'disconnected';
+      if (container.dataset.emptyState !== wantKey) {
+        container.dataset.emptyState = wantKey;
+        container.innerHTML = reconnecting ? `
+          <div class="empty-state">
+            <div class="reconnect-icon">
+              <svg width="120" height="120" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle class="pulse-ring" cx="60" cy="60" r="55" stroke="var(--accent)" stroke-width="1.5" fill="none"/>
+                <rect x="31" y="32" width="58" height="16" rx="2" fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"/>
+                <rect x="31" y="52" width="58" height="16" rx="2" fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"/>
+                <rect x="31" y="72" width="58" height="16" rx="2" fill="var(--surface2)" stroke="var(--border)" stroke-width="1.5"/>
+                <circle cx="79" cy="40" r="3.5" fill="var(--accent)"/>
+                <circle cx="79" cy="60" r="3.5" fill="var(--accent)" opacity="0.5"/>
+                <circle cx="79" cy="80" r="3.5" fill="var(--text-muted)" opacity="0.4"/>
+                <rect x="36" y="38" width="24" height="3" rx="1" fill="var(--text-muted)" opacity="0.5"/>
+                <rect x="36" y="58" width="18" height="3" rx="1" fill="var(--text-muted)" opacity="0.5"/>
+                <rect x="36" y="78" width="21" height="3" rx="1" fill="var(--text-muted)" opacity="0.5"/>
+              </svg>
+            </div>
+            <h3>Reconnecting…</h3>
+            <p>Attempting to restore connection to the server.</p>
+          </div>` : `
+          <div class="empty-state">
+            <div class="icon">🔌</div>
+            <h3>Not connected</h3>
+            <p>Configure your server details to start monitoring.</p>
+          </div>`;
+      }
+      return;
+    }
+    delete container.dataset.emptyState;
     const items = getSortedItems();
 
     if (items.length === 0) {
