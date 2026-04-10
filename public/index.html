@@ -97,49 +97,6 @@
     /* ── Layout ── */
     .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
 
-    /* ── Config panel ── */
-    .config-panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      margin-bottom: 24px;
-      overflow: hidden;
-    }
-
-    .config-toggle {
-      width: 100%;
-      background: none;
-      border: none;
-      color: var(--text);
-      padding: 14px 20px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      cursor: pointer;
-      font-size: 0.9rem;
-      font-weight: 600;
-      text-align: left;
-    }
-
-    .config-toggle:hover { background: var(--surface2); }
-
-    .config-toggle .chevron { margin-left: auto; transition: transform 0.2s; color: var(--text-muted); }
-    .config-toggle.open .chevron { transform: rotate(180deg); }
-
-    .config-body {
-      display: none;
-      padding: 20px;
-      border-top: 1px solid var(--border);
-    }
-    .config-body.open { display: block; }
-
-    .config-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-
     label {
       display: block;
       font-size: 0.75rem;
@@ -168,10 +125,6 @@
     }
 
     textarea { min-height: 70px; resize: vertical; }
-
-    .config-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-
-    .hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 6px; }
 
     /* ── Stats bar ── */
     .stats-bar {
@@ -512,59 +465,11 @@
     <span id="statusText">Disconnected</span>
   </div>
   <button class="refresh-btn" id="refreshBtn" disabled onclick="apiRefresh()" title="Refresh"><span>↻</span></button>
+  <button class="refresh-btn" onclick="openConfigModal()" title="Settings"><span>⚙</span></button>
   <button class="btn btn-primary" id="connectBtn" onclick="toggleConnect()">Connect</button>
 </header>
 
 <div class="container">
-
-  <!-- Config panel -->
-  <div class="config-panel">
-    <button class="config-toggle" id="configToggle" onclick="toggleConfig()">
-      ⚙ Server Configuration
-      <span class="chevron">▼</span>
-    </button>
-    <div class="config-body" id="configBody">
-      <div class="config-grid">
-        <div>
-          <label>Server IP</label>
-          <input id="cfgIp" type="text" placeholder="192.168.1.x or public IP" />
-        </div>
-        <div>
-          <label>App Port</label>
-          <input id="cfgPort" type="number" placeholder="28082" value="28082" />
-        </div>
-        <div>
-          <label>Steam ID (64-bit)</label>
-          <input id="cfgSteamId" type="text" placeholder="76561198xxxxxxxxx" />
-        </div>
-        <div>
-          <label>Player Token</label>
-          <input id="cfgToken" type="password" placeholder="From Rust+ pairing" />
-        </div>
-        <div>
-          <label>GCM Android ID</label>
-          <input id="cfgGcmId" type="text" placeholder="From rustplusplus extension" />
-        </div>
-        <div>
-          <label>GCM Security Token</label>
-          <input id="cfgGcmToken" type="password" placeholder="From rustplusplus extension" />
-        </div>
-      </div>
-      <div style="margin-bottom:16px">
-        <label>Storage Monitor Entity IDs <span style="font-weight:400;text-transform:none">(one per line or comma-separated)</span></label>
-        <textarea id="cfgEntityIds" placeholder="123456&#10;789012&#10;345678"></textarea>
-        <div class="hint">Find entity IDs using the Rust+ app or tools like <code>rustplus-cli</code>. Each storage monitor has a unique entity ID.</div>
-      </div>
-      <div style="margin-bottom:16px">
-        <label>Monitor Labels (optional) — format: entityId=Label Name, one per line</label>
-        <textarea id="cfgLabels" placeholder="123456=Main Base&#10;789012=Outpost&#10;345678=Farm Box"></textarea>
-      </div>
-      <div class="config-actions">
-        <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
-        <button class="btn btn-ghost" onclick="loadConfig()">↺ Reload</button>
-      </div>
-    </div>
-  </div>
 
   <!-- Error banner -->
   <div class="error-banner" id="errorBanner"></div>
@@ -634,6 +539,44 @@
     <div class="monitors-grid" id="monitorsGrid"></div>
   </div>
 
+</div>
+
+<!-- Config modal -->
+<div class="modal-overlay" id="configModal" onclick="if(event.target===this)closeConfigModal()">
+  <div class="modal" style="width:480px">
+    <h2>Server Configuration</h2>
+    <p>Connection settings for your Rust+ server.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="grid-column:span 2">
+        <label>Server IP</label>
+        <input id="cfgIp" type="text" placeholder="192.168.1.x or public IP" />
+      </div>
+      <div>
+        <label>App Port</label>
+        <input id="cfgPort" type="number" placeholder="28082" value="28082" />
+      </div>
+      <div>
+        <label>Steam ID (64-bit)</label>
+        <input id="cfgSteamId" type="text" placeholder="76561198xxxxxxxxx" />
+      </div>
+      <div style="grid-column:span 2">
+        <label>Player Token</label>
+        <input id="cfgToken" type="password" placeholder="From Rust+ pairing" />
+      </div>
+      <div>
+        <label>GCM Android ID</label>
+        <input id="cfgGcmId" type="text" placeholder="From rustplusplus extension" />
+      </div>
+      <div>
+        <label>GCM Security Token</label>
+        <input id="cfgGcmToken" type="password" placeholder="From rustplusplus extension" />
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top:20px">
+      <button class="btn btn-ghost" onclick="closeConfigModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveConfig()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- Item detail modal -->
@@ -750,28 +693,6 @@
   }
 
   async function saveConfig() {
-    const entityRaw = document.getElementById('cfgEntityIds').value;
-    const entityIds = entityRaw
-      .split(/[\n,]+/)
-      .map(s => s.trim())
-      .filter(s => /^\d+$/.test(s))
-      .map(Number);
-
-    const labelRaw = document.getElementById('cfgLabels').value;
-    const entityLabels = {};
-    labelRaw.split('\n').forEach(line => {
-      const [id, ...rest] = line.split('=');
-      if (id && rest.length) entityLabels[id.trim()] = rest.join('=').trim();
-    });
-
-    // Prompt for names for any newly added entity IDs before saving
-    const currentIds = new Set((state.config.entityIds || []).map(String));
-    for (const id of entityIds.map(String).filter(id => !currentIds.has(id))) {
-      const name = await showPairModalAsync(id);
-      if (name) entityLabels[id] = name;
-      promptedIds.add(id);
-    }
-
     const token = document.getElementById('cfgToken').value;
     const gcmId = document.getElementById('cfgGcmId').value.trim();
     const gcmTok = document.getElementById('cfgGcmToken').value.trim();
@@ -779,20 +700,12 @@
       serverIp: document.getElementById('cfgIp').value.trim(),
       appPort: parseInt(document.getElementById('cfgPort').value) || 28082,
       steamId: document.getElementById('cfgSteamId').value.trim(),
-      entityIds,
-      entityLabels,
       ...(gcmId && { gcmAndroidId: gcmId }),
       ...(gcmTok && !gcmTok.includes('•') && { gcmSecurityToken: gcmTok }),
     };
     if (token && !token.includes('•')) body.playerToken = token;
-
     const res = await api('POST', '/api/config', body);
-    if (res.success) {
-      showBanner(null);
-      // Collapse config after save
-      document.getElementById('configBody').classList.remove('open');
-      document.getElementById('configToggle').classList.remove('open');
-    }
+    if (res.success) closeConfigModal();
   }
 
   async function loadConfig() {
@@ -801,22 +714,20 @@
     document.getElementById('cfgPort').value = cfg.appPort || 28082;
     document.getElementById('cfgSteamId').value = cfg.steamId || '';
     document.getElementById('cfgToken').value = cfg.playerToken || '';
-    document.getElementById('cfgEntityIds').value = (cfg.entityIds || []).join('\n');
     document.getElementById('cfgGcmId').value = cfg.gcmAndroidId || '';
     document.getElementById('cfgGcmToken').value = cfg.gcmSecurityToken || '';
-    const labels = cfg.entityLabels || {};
-    document.getElementById('cfgLabels').value = Object.entries(labels).map(([k,v]) => `${k}=${v}`).join('\n');
 
     // Pre-populate promptedIds so existing monitors don't trigger the naming modal on load
     (cfg.entityIds || []).forEach(id => promptedIds.add(String(id)));
     monitorsInitialized = true;
   }
 
-  function toggleConfig() {
-    const body = document.getElementById('configBody');
-    const toggle = document.getElementById('configToggle');
-    body.classList.toggle('open');
-    toggle.classList.toggle('open');
+  function openConfigModal() {
+    document.getElementById('configModal').classList.add('show');
+  }
+
+  function closeConfigModal() {
+    document.getElementById('configModal').classList.remove('show');
   }
 
   function setView(v) {
