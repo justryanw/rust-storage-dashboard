@@ -9,21 +9,25 @@ function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
-const itemNameCache = {};
-
 function getInvItem(itemId) {
-  const inv = state.inventory || {};
-  return Object.values(inv).find(i => i.itemId === itemId) || null;
+  return Object.values(state.inventory || {}).find(i => i.itemId === itemId) || null;
 }
 
 function getItemName(itemId) {
-  const found = getInvItem(itemId);
-  if (found) return found.name;
-  return itemNameCache[itemId] || `Item #${itemId}`;
+  return getInvItem(itemId)?.name || `Item #${itemId}`;
 }
 
 function getItemShortname(itemId) {
   return getInvItem(itemId)?.shortname || null;
+}
+
+function isAutoReconnecting() {
+  const cfg = state.config || {};
+  const hasConfig = cfg.serverIp && cfg.appPort && cfg.steamId && cfg.playerToken;
+  return hasConfig && (
+    state.status === 'disconnected' ||
+    (hasBeenConnected && (state.status === 'connecting' || state.status === 'error'))
+  );
 }
 
 function itemIconHTML(shortname, size = 36) {
@@ -213,20 +217,14 @@ function renderStatus() {
   const refreshBtn = document.getElementById('refreshBtn');
 
   const { status, error } = state;
-  const cfg = state.config || {};
-  const hasConfig = cfg.serverIp && cfg.appPort && cfg.steamId && cfg.playerToken;
-  const autoReconnecting = hasConfig && (
-    status === 'disconnected' ||
-    (hasBeenConnected && (status === 'connecting' || status === 'error'))
-  );
-
-  const displayAs = autoReconnecting ? 'reconnecting' : status;
+  const reconnecting = isAutoReconnecting();
+  const displayAs = reconnecting ? 'reconnecting' : status;
   badge.className = `status-badge ${displayAs}`;
   const labels = { connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', error: 'Error' };
   text.textContent = labels[displayAs] || status;
 
   refreshBtn.disabled = status !== 'connected';
-  if (status !== 'connected') { pollBarStart = null; document.getElementById('refreshBtn').style.background = ''; }
+  if (status !== 'connected') { pollBarStart = null; refreshBtn.style.background = ''; }
 
   const connected = status === 'connected';
   document.getElementById('statsBar').style.display = connected ? '' : 'none';
@@ -309,12 +307,7 @@ function getSortedItems() {
 function renderInventory() {
   const container = document.getElementById('inventoryContainer');
   if (state.status !== 'connected') {
-    const cfg = state.config || {};
-    const hasConfig = cfg.serverIp && cfg.appPort && cfg.steamId && cfg.playerToken;
-    const reconnecting = hasConfig && (
-      state.status === 'disconnected' ||
-      (hasBeenConnected && (state.status === 'connecting' || state.status === 'error'))
-    );
+    const reconnecting = isAutoReconnecting();
     const wantKey = reconnecting ? 'reconnecting' : 'disconnected';
     if (container.dataset.emptyState !== wantKey) {
       container.dataset.emptyState = wantKey;
@@ -478,10 +471,17 @@ function toggleGroup(gid) {
 function renderSection(sectionId, gridId, entries, allEntries) {
   const section = document.getElementById(sectionId);
   const grid = document.getElementById(gridId);
-  if (allEntries.length === 0 || state.status !== 'connected') { section.style.display = 'none'; return; }
+  if (allEntries.length === 0 || entries.length === 0 || state.status !== 'connected') { section.style.display = 'none'; return; }
   section.style.display = '';
   const query = document.getElementById('searchInput').value.toLowerCase().trim();
   updateGrid(grid, entries.map(m => ({ id: `mc-${m.entityId}`, html: monitorCardHTML(m, query) })));
+}
+
+function onSearch() {
+  renderInventory();
+  renderGroups();
+  renderUngrouped();
+  renderMonitors();
 }
 
 function filteredMonitors(monitors) {

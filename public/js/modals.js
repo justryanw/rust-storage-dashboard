@@ -70,14 +70,13 @@ function closeItemModal() {
 
 // ── Pair / rename modal ───────────────────────────────────────────────────────
 let pendingPairId = null;
-let pairModalResolve = null;
 
 function renderGroupDropdown(groups) {
   const dropdown = document.getElementById('groupDropdown');
   const query = document.getElementById('pairGroupInput').value.toLowerCase();
   const filtered = groups.filter(g => g.toLowerCase().includes(query));
   dropdown.innerHTML = filtered.length
-    ? filtered.map(g => `<div class="group-dropdown-item" onmousedown="selectGroup('${escHtml(g)}')">${escHtml(g)}</div>`).join('')
+    ? filtered.map(g => `<div class="group-dropdown-item" onmousedown="selectGroup(${JSON.stringify(g)})">${escHtml(g)}</div>`).join('')
     : (groups.length ? '<div class="group-dropdown-empty">No matches</div>' : '<div class="group-dropdown-empty">No existing groups</div>');
 }
 
@@ -112,32 +111,24 @@ function selectGroup(name) {
 
 function _openModal(entityId) {
   pendingPairId = entityId;
-  const existingIds = new Set((state.config.entityIds || []).map(String));
+  const cfg = state.config || {};
+  const existingIds = new Set((cfg.entityIds || []).map(String));
   const isExisting = existingIds.has(String(entityId));
   document.querySelector('#pairModal h2').textContent = isExisting ? 'Rename Monitor' : 'Add Monitor';
   document.getElementById('pairModalSub').textContent = `Entity ID: ${entityId}`;
-  const existingLabel = (state.config.entityLabels || {})[entityId];
+  const existingLabel = (cfg.entityLabels || {})[entityId];
   document.getElementById('pairNameInput').value = existingLabel || 'Storage Monitor';
-  const existingGroup = (state.config.entityGroups || {})[String(entityId)] || '';
+  const existingGroup = (cfg.entityGroups || {})[String(entityId)] || '';
   document.getElementById('pairGroupInput').value = existingGroup;
-  const allGroups = [...new Set(Object.values(state.config.entityGroups || {}))];
+  const allGroups = [...new Set(Object.values(cfg.entityGroups || {}))];
   document.getElementById('groupCombobox').dataset.groups = JSON.stringify(allGroups);
   renderGroupDropdown(allGroups);
   document.getElementById('pairModal').classList.add('show');
   setTimeout(() => document.getElementById('pairNameInput').focus(), 50);
 }
 
-// Queue mode — used for pairing / auto-discovery
 function showPairModal(paired) {
   _openModal(paired.entityId);
-}
-
-// Promise mode — used by saveConfig to collect names before saving
-function showPairModalAsync(entityId) {
-  return new Promise(resolve => {
-    pairModalResolve = resolve;
-    _openModal(entityId);
-  });
 }
 
 async function savePairName() {
@@ -156,13 +147,6 @@ async function _closeModal(name) {
   document.getElementById('pairNameInput').value = '';
   document.getElementById('pairGroupInput').value = '';
   closeGroupDropdown();
-
-  if (pairModalResolve) {
-    const resolve = pairModalResolve;
-    pairModalResolve = null;
-    resolve(name);
-    return;
-  }
 
   if (name !== null) {
     await api('POST', '/api/monitor/confirm', { entityId: id, name: name || undefined, group: group || undefined });

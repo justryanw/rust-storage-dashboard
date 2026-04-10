@@ -64,7 +64,7 @@
   <div class="controls" id="controlsBar">
     <div class="search-wrap">
       <span class="search-icon">🔍</span>
-      <input id="searchInput" type="text" placeholder="Search items…" oninput="renderInventory();renderGroups();renderUngrouped();renderMonitors()" />
+      <input id="searchInput" type="text" placeholder="Search items…" oninput="onSearch()" />
     </div>
     <select class="sort-select" id="sortSelect" onchange="renderInventory()">
       <option value="qty-desc">Quantity ↓</option>
@@ -158,7 +158,7 @@
 </div>
 
 <!-- Pair name modal -->
-<div class="modal-overlay" id="pairModal">
+<div class="modal-overlay" id="pairModal" onclick="if(event.target===this)dismissPairModal()">
   <div class="modal">
     <h2>Name this Monitor</h2>
     <p id="pairModalSub">Entity ID: —</p>

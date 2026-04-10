@@ -61,7 +61,7 @@ function broadcastState() {
     const msg = JSON.stringify(state);
     wss.clients.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
-            client.send(msg);
+            try { client.send(msg); } catch (e) { console.error('WS broadcast error:', e.message); }
         }
     });
 }
@@ -110,11 +110,8 @@ async function startPairing() {
 
             const entityId = body.entityId;
             const entityType = Number(body.entityType);
-            const serverIp = body.ip;
-            const serverPort = body.port;
-            const name = body.name;
 
-            console.log(`Pairing: entityId=${entityId} type=${entityType} ip=${serverIp}`);
+            console.log(`Pairing: entityId=${entityId} type=${entityType} ip=${body.ip}`);
 
             // entityType 3 = StorageMonitor — record the pending pairing but don't add yet.
             // The client will call /api/monitor/confirm once the user names it.
@@ -372,7 +369,12 @@ app.post('/api/config', (req, res) => {
     if (playerToken !== undefined && !String(playerToken).includes('•')) {
         config.playerToken = playerToken;
     }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    try {
+        fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    } catch (e) {
+        console.error('Failed to write config.json:', e.message);
+        return res.status(500).json({ error: 'Failed to save config' });
+    }
 
     const hasConnection = config.serverIp && config.appPort && config.steamId && config.playerToken;
 
@@ -429,7 +431,7 @@ app.delete('/api/monitor/:entityId', (req, res) => {
     config.entityIds = (config.entityIds || []).filter(e => String(e) !== id);
     if (config.entityLabels) delete config.entityLabels[id];
     if (config.entityGroups) delete config.entityGroups[id];
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); } catch (e) { console.error('Failed to write config.json:', e.message); }
     mergeInventory();
     broadcastState();
     res.json({ success: true });
@@ -441,7 +443,7 @@ app.post('/api/monitor/confirm', async (req, res) => {
     const id = String(entityId);
 
     if (!config.entityIds) config.entityIds = [];
-    if (!config.entityIds.includes(Number(id))) config.entityIds.push(Number(id));
+    if (!config.entityIds.map(String).includes(id)) config.entityIds.push(id);
     if (name) {
         if (!config.entityLabels) config.entityLabels = {};
         config.entityLabels[id] = name;
@@ -452,7 +454,7 @@ app.post('/api/monitor/confirm', async (req, res) => {
     } else if (config.entityGroups) {
         delete config.entityGroups[id];
     }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); } catch (e) { console.error('Failed to write config.json:', e.message); }
 
     if (connectionStatus === 'connected') {
         try {
@@ -490,14 +492,19 @@ app.post('/api/refresh', async (_, res) => {
     if (connectionStatus !== 'connected') {
         return res.status(400).json({ error: 'Not connected' });
     }
-    await refreshAllEntities();
-    broadcastState();
-    res.json({ success: true });
+    try {
+        await refreshAllEntities();
+        broadcastState();
+        res.json({ success: true });
+    } catch (e) {
+        console.error('/api/refresh error:', e.message);
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // WebSocket: send current state on connect
 wss.on('connection', (ws) => {
-    ws.send(JSON.stringify(buildState()));
+    try { ws.send(JSON.stringify(buildState())); } catch (e) { console.error('WS send error:', e.message); }
 });
 
 const PORT = process.env.PORT || 3000;

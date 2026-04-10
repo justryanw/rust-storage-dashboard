@@ -85,8 +85,13 @@ async function api(method, path, body) {
 async function apiRefresh() {
   const btn = document.getElementById('refreshBtn');
   btn.disabled = true;
-  await api('POST', '/api/refresh');
-  btn.disabled = state.status !== 'connected';
+  try {
+    await api('POST', '/api/refresh');
+  } catch (e) {
+    console.error('Refresh failed:', e.message);
+  } finally {
+    btn.disabled = state.status !== 'connected';
+  }
 }
 
 async function saveConfig() {
@@ -106,15 +111,20 @@ async function saveConfig() {
 }
 
 async function loadConfig() {
-  const cfg = await api('GET', '/api/config');
-  document.getElementById('cfgIp').value = cfg.serverIp || '';
-  document.getElementById('cfgPort').value = cfg.appPort || 28082;
-  document.getElementById('cfgSteamId').value = cfg.steamId || '';
-  document.getElementById('cfgToken').value = cfg.playerToken || '';
-  document.getElementById('cfgGcmId').value = cfg.gcmAndroidId || '';
-  document.getElementById('cfgGcmToken').value = cfg.gcmSecurityToken || '';
+  try {
+    const cfg = await api('GET', '/api/config');
+    document.getElementById('cfgIp').value = cfg.serverIp || '';
+    document.getElementById('cfgPort').value = cfg.appPort || 28082;
+    document.getElementById('cfgSteamId').value = cfg.steamId || '';
+    document.getElementById('cfgToken').value = cfg.playerToken || '';
+    document.getElementById('cfgGcmId').value = cfg.gcmAndroidId || '';
+    document.getElementById('cfgGcmToken').value = cfg.gcmSecurityToken || '';
 
-  // Pre-populate promptedIds so existing monitors don't trigger the naming modal on load
-  (cfg.entityIds || []).forEach(id => promptedIds.add(String(id)));
-  monitorsInitialized = true;
+    // Pre-populate promptedIds so existing monitors don't trigger the naming modal on load
+    (cfg.entityIds || []).forEach(id => promptedIds.add(String(id)));
+    monitorsInitialized = true;
+  } catch (e) {
+    console.error('Failed to load config:', e.message);
+    showBanner('Failed to load configuration from server.');
+  }
 }
