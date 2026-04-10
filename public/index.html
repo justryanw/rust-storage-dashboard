@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Storage Monitor Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #22263a;
+      --border: #2e3347;
+      --accent: #e8622a;
+      --accent2: #f0953a;
+      --text: #e2e8f0;
+      --text-muted: #7a8099;
+      --green: #4ade80;
+      --red: #f87171;
+      --yellow: #facc15;
+      --radius: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    header h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent2);
+      letter-spacing: 0.5px;
+      flex: 1;
+    }
+
+    header h1 span { color: var(--text-muted); font-weight: 400; }
+
+    .status-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 99px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+    }
+
+    .status-badge.connected .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-badge.disconnected .status-dot { background: var(--text-muted); }
+    .status-badge.connecting .status-dot { background: var(--yellow); animation: pulse 1s infinite; }
+    .status-badge.error .status-dot { background: var(--red); }
+
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .btn {
+      padding: 7px 16px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn:active { transform: scale(0.97); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+    .btn-danger { background: #7f1d1d; color: #fca5a5; border: 1px solid #991b1b; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Layout ── */
+    .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+    /* ── Config panel ── */
+    .config-panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+      overflow: hidden;
+    }
+
+    .config-toggle {
+      width: 100%;
+      background: none;
+      border: none;
+      color: var(--text);
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-align: left;
+    }
+
+    .config-toggle:hover { background: var(--surface2); }
+
+    .config-toggle .chevron { margin-left: auto; transition: transform 0.2s; color: var(--text-muted); }
+    .config-toggle.open .chevron { transform: rotate(180deg); }
+
+    .config-body {
+      display: none;
+      padding: 20px;
+      border-top: 1px solid var(--border);
+    }
+    .config-body.open { display: block; }
+
+    .config-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 6px;
+    }
+
+    input, textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 0.88rem;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+
+    input:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    textarea { min-height: 70px; resize: vertical; }
+
+    .config-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+    .hint { font-size: 0.75rem; color: var(--text-muted); margin-top: 6px; }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+    }
+
+    .stat-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .stat-value { font-size: 1.6rem; font-weight: 700; color: var(--accent2); }
+    .stat-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
+
+    /* ── Controls ── */
+    .controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .search-wrap { flex: 1; min-width: 180px; position: relative; }
+    .search-wrap input { padding-left: 32px; }
+    .search-icon { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 0.9rem; pointer-events: none; }
+
+    .sort-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+
+    .view-toggle { display: flex; gap: 4px; }
+    .view-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text-muted);
+      padding: 7px 10px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: all 0.15s;
+    }
+    .view-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ── Inventory grid ── */
+    .inventory-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .item-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px;
+      transition: border-color 0.15s, transform 0.1s;
+      cursor: default;
+    }
+
+    .item-card:hover { border-color: var(--accent); transform: translateY(-1px); }
+
+    .item-name {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .item-qty {
+      font-size: 1.5rem;
+      font-weight: 800;
+      color: var(--accent2);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .item-meta {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 8px;
+    }
+
+    .item-bp {
+      background: #1e3a5f;
+      color: #60a5fa;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 0.65rem;
+      font-weight: 700;
+    }
+
+    /* ── Inventory table ── */
+    .inventory-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+
+    .inventory-table th {
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .inventory-table th:hover { color: var(--text); }
+    .inventory-table th .sort-arrow { color: var(--accent); }
+
+    .inventory-table td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .inventory-table tr:last-child td { border-bottom: none; }
+    .inventory-table tr:hover td { background: var(--surface2); }
+
+    .qty-cell { font-weight: 700; color: var(--accent2); }
+
+    .table-wrap {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    /* ── Monitor breakdown ── */
+    .monitors-section { margin-top: 28px; }
+    .monitors-section h2 { font-size: 0.95rem; font-weight: 700; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .monitors-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .monitor-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .monitor-header {
+      padding: 12px 16px;
+      background: var(--surface2);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .monitor-header:hover { background: #2a2f45; }
+    .monitor-header:hover .monitor-delete { opacity: 1; }
+
+    .monitor-name { font-weight: 700; font-size: 0.9rem; flex: 1; }
+    .monitor-delete {
+      opacity: 0;
+      background: none;
+      border: none;
+      color: var(--red);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      transition: opacity 0.15s, background 0.15s;
+      line-height: 1;
+    }
+    .monitor-delete:hover { background: rgba(248,113,113,0.15); }
+
+    .monitor-capacity {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .monitor-error { color: var(--red); font-size: 0.75rem; }
+
+    .capacity-bar {
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+
+    .capacity-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.4s;
+    }
+
+    .monitor-items { padding: 10px 16px; max-height: 260px; overflow-y: auto; }
+    .monitor-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 5px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.82rem;
+    }
+    .monitor-item:last-child { border-bottom: none; }
+    .monitor-item-qty { font-weight: 700; color: var(--accent2); }
+
+    .monitor-collapsed .monitor-items { display: none; }
+
+    /* ── Empty state ── */
+    .empty-state {
+      text-align: center;
+      padding: 60px 24px;
+      color: var(--text-muted);
+    }
+    .empty-state .icon { font-size: 3rem; margin-bottom: 16px; }
+    .empty-state h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--text); }
+    .empty-state p { font-size: 0.88rem; }
+
+    /* ── Error banner ── */
+    .error-banner {
+      background: #7f1d1d;
+      border: 1px solid #991b1b;
+      border-radius: var(--radius);
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      font-size: 0.88rem;
+      color: #fca5a5;
+      display: none;
+    }
+    .error-banner.show { display: block; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── Last update ── */
+    .last-update { font-size: 0.72rem; color: var(--text-muted); margin-left: auto; }
+
+    /* ── Refresh circle button ── */
+    .refresh-btn {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      background: var(--surface2);
+      color: var(--text);
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      flex-shrink: 0;
+      transition: opacity 0.15s;
+    }
+    .refresh-btn::before {
+      content: '';
+      position: absolute;
+      inset: 4px;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+    .refresh-btn span { position: relative; z-index: 1; line-height: 1; }
+    .refresh-btn:hover { opacity: 0.8; }
+    .refresh-btn:active { opacity: 0.6; }
+    .refresh-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── Modal ── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px;
+      width: 360px;
+      max-width: calc(100vw - 32px);
+    }
+    .modal h2 { font-size: 1rem; font-weight: 700; margin-bottom: 4px; }
+    .modal p { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px; }
+    .modal input { margin-bottom: 16px; }
+    .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Rust+ <span>Storage Monitor</span></h1>
+  <div id="statusBadge" class="status-badge disconnected">
+    <div class="status-dot"></div>
+    <span id="statusText">Disconnected</span>
+  </div>
+  <button class="refresh-btn" id="refreshBtn" disabled onclick="apiRefresh()" title="Refresh"><span>↻</span></button>
+  <button class="btn btn-primary" id="connectBtn" onclick="toggleConnect()">Connect</button>
+</header>
+
+<div class="container">
+
+  <!-- Config panel -->
+  <div class="config-panel">
+    <button class="config-toggle" id="configToggle" onclick="toggleConfig()">
+      ⚙ Server Configuration
+      <span class="chevron">▼</span>
+    </button>
+    <div class="config-body" id="configBody">
+      <div class="config-grid">
+        <div>
+          <label>Server IP</label>
+          <input id="cfgIp" type="text" placeholder="192.168.1.x or public IP" />
+        </div>
+        <div>
+          <label>App Port</label>
+          <input id="cfgPort" type="number" placeholder="28082" value="28082" />
+        </div>
+        <div>
+          <label>Steam ID (64-bit)</label>
+          <input id="cfgSteamId" type="text" placeholder="76561198xxxxxxxxx" />
+        </div>
+        <div>
+          <label>Player Token</label>
+          <input id="cfgToken" type="password" placeholder="From Rust+ pairing" />
+        </div>
+        <div>
+          <label>GCM Android ID</label>
+          <input id="cfgGcmId" type="text" placeholder="From rustplusplus extension" />
+        </div>
+        <div>
+          <label>GCM Security Token</label>
+          <input id="cfgGcmToken" type="password" placeholder="From rustplusplus extension" />
+        </div>
+      </div>
+      <div style="margin-bottom:16px">
+        <label>Storage Monitor Entity IDs <span style="font-weight:400;text-transform:none">(one per line or comma-separated)</span></label>
+        <textarea id="cfgEntityIds" placeholder="123456&#10;789012&#10;345678"></textarea>
+        <div class="hint">Find entity IDs using the Rust+ app or tools like <code>rustplus-cli</code>. Each storage monitor has a unique entity ID.</div>
+      </div>
+      <div style="margin-bottom:16px">
+        <label>Monitor Labels (optional) — format: entityId=Label Name, one per line</label>
+        <textarea id="cfgLabels" placeholder="123456=Main Base&#10;789012=Outpost&#10;345678=Farm Box"></textarea>
+      </div>
+      <div class="config-actions">
+        <button class="btn btn-primary" onclick="saveConfig()">Save Config</button>
+        <button class="btn btn-ghost" onclick="loadConfig()">↺ Reload</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Error banner -->
+  <div class="error-banner" id="errorBanner"></div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-label">Unique Items</div>
+      <div class="stat-value" id="statItems">—</div>
+      <div class="stat-sub">across all monitors</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Total Quantity</div>
+      <div class="stat-value" id="statTotal">—</div>
+      <div class="stat-sub">items in network</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Monitors</div>
+      <div class="stat-value" id="statMonitors">—</div>
+      <div class="stat-sub">storage monitors</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Last Update</div>
+      <div class="stat-value" id="statTime" style="font-size:1rem">—</div>
+      <div class="stat-sub" id="statDate"></div>
+    </div>
+  </div>
+
+  <!-- Inventory controls -->
+  <div class="controls">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input id="searchInput" type="text" placeholder="Search items…" oninput="renderInventory()" />
+    </div>
+    <select class="sort-select" id="sortSelect" onchange="renderInventory()">
+      <option value="qty-desc">Quantity ↓</option>
+      <option value="qty-asc">Quantity ↑</option>
+      <option value="name-asc">Name A–Z</option>
+      <option value="name-desc">Name Z–A</option>
+    </select>
+    <div class="view-toggle">
+      <button class="view-btn active" id="viewGrid" onclick="setView('grid')" title="Grid view">⊞</button>
+      <button class="view-btn" id="viewTable" onclick="setView('table')" title="Table view">☰</button>
+    </div>
+    <span class="last-update" id="lastUpdateLabel"></span>
+  </div>
+
+  <!-- Inventory display -->
+  <div id="inventoryContainer"></div>
+
+  <!-- Individual monitors section -->
+  <div class="monitors-section" id="monitorsSection" style="display:none">
+    <h2>Individual Monitors</h2>
+    <div class="monitors-grid" id="monitorsGrid"></div>
+  </div>
+
+</div>
+
+<!-- Pair name modal -->
+<div class="modal-overlay" id="pairModal">
+  <div class="modal">
+    <h2>Name this Monitor</h2>
+    <p id="pairModalSub">Entity ID: —</p>
+    <label>Name</label>
+    <input id="pairNameInput" type="text" placeholder="e.g. Main Base, Outpost…" onkeydown="if(event.key==='Enter')savePairName()" />
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="dismissPairModal()">Skip</button>
+      <button class="btn btn-primary" onclick="savePairName()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  let state = { status: 'disconnected', inventory: {}, monitors: {}, config: {} };
+  let ws = null;
+  let currentView = 'grid';
+  let wsReconnectTimer = null;
+  let pollBarStart = null;
+  const POLL_INTERVAL = 5000;
+
+  function animatePollBar() {
+    const btn = document.getElementById('refreshBtn');
+    if (!pollBarStart || state.status !== 'connected') {
+      btn.style.background = '';
+      return;
+    }
+    const elapsed = Date.now() - pollBarStart;
+    const pct = Math.min((elapsed / POLL_INTERVAL) * 100, 100);
+    btn.style.background = `conic-gradient(var(--accent) ${pct}%, var(--surface2) ${pct}%)`;
+    if (pct < 100) requestAnimationFrame(animatePollBar);
+  }
+
+  function resetPollBar() {
+    pollBarStart = Date.now();
+    requestAnimationFrame(animatePollBar);
+  }
+  const sessionStart = new Date().toISOString();
+  let lastHandledPairTimestamp = null;
+  let monitorQueue = [];
+  let promptedIds = new Set();
+  let monitorsInitialized = false;
+
+  // ── WebSocket ─────────────────────────────────────────────────────────────
+  function connectWS() {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}`);
+
+    ws.onmessage = (e) => {
+      try {
+        const newState = JSON.parse(e.data);
+        state = newState;
+        render();
+        if (state.status === 'connected') resetPollBar();
+      } catch (_) {}
+    };
+
+    ws.onclose = () => {
+      clearTimeout(wsReconnectTimer);
+      wsReconnectTimer = setTimeout(connectWS, 3000);
+    };
+
+    ws.onerror = () => ws.close();
+  }
+
+  // ── API helpers ───────────────────────────────────────────────────────────
+  async function api(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    return res.json();
+  }
+
+  async function toggleConnect() {
+    const btn = document.getElementById('connectBtn');
+    if (state.status === 'connected' || state.status === 'connecting') {
+      btn.disabled = true;
+      await api('POST', '/api/disconnect');
+      btn.disabled = false;
+    } else {
+      btn.disabled = true;
+      await api('POST', '/api/connect');
+      btn.disabled = false;
+    }
+  }
+
+  async function apiRefresh() {
+    const btn = document.getElementById('refreshBtn');
+    btn.disabled = true;
+    await api('POST', '/api/refresh');
+    btn.disabled = state.status !== 'connected';
+  }
+
+  async function saveConfig() {
+    const entityRaw = document.getElementById('cfgEntityIds').value;
+    const entityIds = entityRaw
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(s => /^\d+$/.test(s))
+      .map(Number);
+
+    const labelRaw = document.getElementById('cfgLabels').value;
+    const entityLabels = {};
+    labelRaw.split('\n').forEach(line => {
+      const [id, ...rest] = line.split('=');
+      if (id && rest.length) entityLabels[id.trim()] = rest.join('=').trim();
+    });
+
+    const token = document.getElementById('cfgToken').value;
+    const gcmId = document.getElementById('cfgGcmId').value.trim();
+    const gcmTok = document.getElementById('cfgGcmToken').value.trim();
+    const body = {
+      serverIp: document.getElementById('cfgIp').value.trim(),
+      appPort: parseInt(document.getElementById('cfgPort').value) || 28082,
+      steamId: document.getElementById('cfgSteamId').value.trim(),
+      entityIds,
+      entityLabels,
+      ...(gcmId && { gcmAndroidId: gcmId }),
+      ...(gcmTok && !gcmTok.includes('•') && { gcmSecurityToken: gcmTok }),
+    };
+    if (token && !token.includes('•')) body.playerToken = token;
+
+    const res = await api('POST', '/api/config', body);
+    if (res.success) {
+      showBanner(null);
+      // Collapse config after save
+      document.getElementById('configBody').classList.remove('open');
+      document.getElementById('configToggle').classList.remove('open');
+    }
+  }
+
+  async function loadConfig() {
+    const cfg = await api('GET', '/api/config');
+    document.getElementById('cfgIp').value = cfg.serverIp || '';
+    document.getElementById('cfgPort').value = cfg.appPort || 28082;
+    document.getElementById('cfgSteamId').value = cfg.steamId || '';
+    document.getElementById('cfgToken').value = cfg.playerToken || '';
+    document.getElementById('cfgEntityIds').value = (cfg.entityIds || []).join('\n');
+    document.getElementById('cfgGcmId').value = cfg.gcmAndroidId || '';
+    document.getElementById('cfgGcmToken').value = cfg.gcmSecurityToken || '';
+    const labels = cfg.entityLabels || {};
+    document.getElementById('cfgLabels').value = Object.entries(labels).map(([k,v]) => `${k}=${v}`).join('\n');
+
+    // Pre-populate promptedIds so existing monitors don't trigger the naming modal on load
+    (cfg.entityIds || []).forEach(id => promptedIds.add(String(id)));
+    monitorsInitialized = true;
+  }
+
+  function toggleConfig() {
+    const body = document.getElementById('configBody');
+    const toggle = document.getElementById('configToggle');
+    body.classList.toggle('open');
+    toggle.classList.toggle('open');
+  }
+
+  function setView(v) {
+    currentView = v;
+    document.getElementById('viewGrid').classList.toggle('active', v === 'grid');
+    document.getElementById('viewTable').classList.toggle('active', v === 'table');
+    renderInventory();
+  }
+
+  function showBanner(msg) {
+    const el = document.getElementById('errorBanner');
+    if (msg) { el.textContent = msg; el.classList.add('show'); }
+    else { el.classList.remove('show'); }
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  function render() {
+    renderStatus();
+    renderStats();
+    renderInventory();
+    renderMonitors();
+    checkNewUnlabeledMonitors();
+  }
+
+  function renderStatus() {
+    const badge = document.getElementById('statusBadge');
+    const text = document.getElementById('statusText');
+    const connectBtn = document.getElementById('connectBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    const { status, error } = state;
+    badge.className = `status-badge ${status}`;
+    const labels = { connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting…', error: 'Error' };
+    text.textContent = labels[status] || status;
+
+    connectBtn.textContent = (status === 'connected' || status === 'connecting') ? 'Disconnect' : 'Connect';
+    connectBtn.className = `btn ${(status === 'connected' || status === 'connecting') ? 'btn-danger' : 'btn-primary'}`;
+    refreshBtn.disabled = status !== 'connected';
+    if (status !== 'connected') { pollBarStart = null; document.getElementById('refreshBtn').style.background = ''; }
+
+    showBanner(status === 'error' && error ? `Connection error: ${error}` : null);
+
+    if (state.lastPaired && state.lastPaired.timestamp !== lastHandledPairTimestamp && state.lastPaired.timestamp > sessionStart) {
+      lastHandledPairTimestamp = state.lastPaired.timestamp;
+      promptedIds.add(state.lastPaired.entityId);
+      showPairModal(state.lastPaired);
+    }
+  }
+
+  function checkNewUnlabeledMonitors() {
+    const monitors = state.monitors || {};
+    if (!monitorsInitialized) {
+      Object.keys(monitors).forEach(id => promptedIds.add(id));
+      monitorsInitialized = true;
+      return;
+    }
+    const labels = (state.config || {}).entityLabels || {};
+    for (const [id, monitor] of Object.entries(monitors)) {
+      if (!promptedIds.has(id) && !labels[id] && monitor.error !== 'not_found') {
+        promptedIds.add(id);
+        monitorQueue.push({ entityId: id });
+      }
+    }
+    if (monitorQueue.length > 0 && !pendingPairId) {
+      showPairModal(monitorQueue.shift());
+    }
+  }
+
+  function fmt(n) {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+    if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+    return n.toLocaleString();
+  }
+
+  function renderStats() {
+    const inv = state.inventory || {};
+    const items = Object.values(inv);
+    const uniqueCount = items.length;
+    const totalQty = items.reduce((s, i) => s + i.quantity, 0);
+    const monitorCount = Object.keys(state.monitors || {}).length;
+
+    document.getElementById('statItems').textContent = uniqueCount > 0 ? uniqueCount.toLocaleString() : '—';
+    document.getElementById('statTotal').textContent = totalQty > 0 ? fmt(totalQty) : '—';
+    document.getElementById('statMonitors').textContent = monitorCount > 0 ? monitorCount : '—';
+
+    if (state.lastUpdate) {
+      const d = new Date(state.lastUpdate);
+      document.getElementById('statTime').textContent = d.toLocaleTimeString();
+      document.getElementById('statDate').textContent = d.toLocaleDateString();
+      document.getElementById('lastUpdateLabel').textContent = `Updated ${d.toLocaleTimeString()}`;
+    }
+  }
+
+  function getSortedItems() {
+    const query = document.getElementById('searchInput').value.toLowerCase();
+    const sort = document.getElementById('sortSelect').value;
+    let items = Object.values(state.inventory || {});
+
+    if (query) items = items.filter(i => i.name.toLowerCase().includes(query) || String(i.itemId).includes(query));
+
+    items.sort((a, b) => {
+      if (sort === 'qty-desc') return b.quantity - a.quantity;
+      if (sort === 'qty-asc') return a.quantity - b.quantity;
+      if (sort === 'name-asc') return a.name.localeCompare(b.name);
+      if (sort === 'name-desc') return b.name.localeCompare(a.name);
+      return 0;
+    });
+
+    return items;
+  }
+
+  function renderInventory() {
+    const container = document.getElementById('inventoryContainer');
+    const items = getSortedItems();
+
+    if (items.length === 0) {
+      const isConnected = state.status === 'connected';
+      container.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">${isConnected ? '📦' : '🔌'}</div>
+          <h3>${isConnected ? 'No items found' : 'Not connected'}</h3>
+          <p>${isConnected
+            ? 'No storage monitors have items, or no entity IDs are configured.'
+            : 'Configure your server details and click Connect to start monitoring.'}
+          </p>
+        </div>`;
+      return;
+    }
+
+    if (currentView === 'grid') {
+      container.innerHTML = `<div class="inventory-grid">${items.map(itemCardHTML).join('')}</div>`;
+    } else {
+      container.innerHTML = `
+        <div class="table-wrap">
+          <table class="inventory-table">
+            <thead>
+              <tr>
+                <th onclick="cycleSortTable('name')">Item <span class="sort-arrow" id="th-name"></span></th>
+                <th onclick="cycleSortTable('qty-desc')">Quantity <span class="sort-arrow" id="th-qty">↓</span></th>
+                <th>Monitors</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody>${items.map(tableRowHTML).join('')}</tbody>
+          </table>
+        </div>`;
+    }
+  }
+
+  function itemCardHTML(item) {
+    const monitorNames = (item.sources || []).map(id => {
+      const m = (state.monitors || {})[id];
+      return m ? m.label : `#${id}`;
+    }).join(', ');
+
+    return `
+      <div class="item-card" title="Item ID: ${item.itemId}">
+        <div class="item-name">${escHtml(item.name)}</div>
+        <div class="item-qty">${fmt(item.quantity)}</div>
+        <div class="item-meta">
+          <span>📦 ${item.sources.length} monitor${item.sources.length !== 1 ? 's' : ''}</span>
+          ${item.isBlueprint ? '<span class="item-bp">BP</span>' : ''}
+        </div>
+      </div>`;
+  }
+
+  function tableRowHTML(item) {
+    const monitorNames = (item.sources || []).map(id => {
+      const m = (state.monitors || {})[id];
+      return m ? m.label : `#${id}`;
+    }).join(', ');
+
+    return `
+      <tr title="Item ID: ${item.itemId}">
+        <td>${escHtml(item.name)}</td>
+        <td class="qty-cell">${item.quantity.toLocaleString()}</td>
+        <td style="color:var(--text-muted);font-size:0.78rem">${escHtml(monitorNames)}</td>
+        <td>${item.isBlueprint ? '<span class="item-bp">Blueprint</span>' : 'Item'}</td>
+      </tr>`;
+  }
+
+  function cycleSortTable(col) {
+    const sel = document.getElementById('sortSelect');
+    if (col === 'name') {
+      sel.value = sel.value === 'name-asc' ? 'name-desc' : 'name-asc';
+    } else {
+      sel.value = sel.value === 'qty-desc' ? 'qty-asc' : 'qty-desc';
+    }
+    renderInventory();
+  }
+
+  function renderMonitors() {
+    const monitors = state.monitors || {};
+    const section = document.getElementById('monitorsSection');
+    const grid = document.getElementById('monitorsGrid');
+    const entries = Object.values(monitors);
+
+    if (entries.length === 0) { section.style.display = 'none'; return; }
+    section.style.display = '';
+
+    grid.innerHTML = entries.map(m => {
+      const usedSlots = (m.items || []).length;
+      const cap = m.capacity || 0;
+      const pct = cap ? Math.round((usedSlots / cap) * 100) : 0;
+      const isRemoved = m.error === 'not_found';
+      const isUnpowered = m.unpowered;
+      const mergedItems = {};
+      for (const item of (m.items || [])) {
+        const id = String(item.itemId);
+        if (!mergedItems[id]) mergedItems[id] = { itemId: item.itemId, quantity: 0 };
+        mergedItems[id].quantity += item.quantity;
+      }
+      const itemsHTML = Object.values(mergedItems)
+        .sort((a, b) => b.quantity - a.quantity)
+        .map(item => `
+          <div class="monitor-item">
+            <span>${escHtml(getItemName(item.itemId))}</span>
+            <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
+          </div>`)
+        .join('');
+
+      const statusBadge = isRemoved
+        ? `<span style="font-size:0.72rem;background:#3b0f0f;color:var(--red);border:1px solid #7f1d1d;border-radius:4px;padding:1px 6px">No Response</span>`
+        : isUnpowered
+        ? `<span style="font-size:0.72rem;background:#2a1f00;color:var(--yellow);border:1px solid #78580a;border-radius:4px;padding:1px 6px">Unpowered</span>`
+        : m.error
+        ? `<span class="monitor-error">⚠ ${escHtml(m.error)}</span>`
+        : `<span class="monitor-capacity">${usedSlots}/${cap} slots (${pct}%)</span>`;
+
+      return `
+        <div class="monitor-card" id="mc-${m.entityId}" ${isRemoved ? 'style="opacity:0.5"' : ''}>
+          <div class="monitor-header" onclick="toggleMonitor('${m.entityId}')">
+            <span class="monitor-name">📦 ${escHtml(m.label || m.entityId)}</span>
+            ${statusBadge}
+            <button class="monitor-delete" onclick="removeMonitor(event,'${m.entityId}')" title="Remove monitor">🗑</button>
+          </div>
+          ${!m.error && !isUnpowered && cap ? `
+            <div style="padding:0 16px 6px">
+              <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div>
+            </div>` : ''}
+          <div class="monitor-items">
+            ${isRemoved || isUnpowered ? '' : (itemsHTML || '<div style="color:var(--text-muted);font-size:0.82rem;padding:4px 0">Empty</div>')}
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  function toggleMonitor(id) {
+    const card = document.getElementById(`mc-${id}`);
+    if (card) card.classList.toggle('monitor-collapsed');
+  }
+
+  async function removeMonitor(event, id) {
+    event.stopPropagation();
+    await api('DELETE', `/api/monitor/${id}`);
+    promptedIds.delete(id);
+  }
+
+  // ── Item name lookup (client-side fallback for display) ───────────────────
+  const itemNameCache = {};
+  function getItemName(itemId) {
+    // Names come from the server via state; this is only called for monitor cards
+    // where the item may not be in the merged inventory
+    const inv = state.inventory || {};
+    const found = Object.values(inv).find(i => i.itemId === itemId);
+    if (found) return found.name;
+    return itemNameCache[itemId] || `Item #${itemId}`;
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Pair name modal ───────────────────────────────────────────────────────
+  let pendingPairId = null;
+
+  function showPairModal(paired) {
+    pendingPairId = paired.entityId;
+    document.getElementById('pairModalSub').textContent = `Entity ID: ${paired.entityId}`;
+    const existingLabel = (state.config.entityLabels || {})[paired.entityId];
+    document.getElementById('pairNameInput').value = existingLabel || 'Storage Monitor';
+    document.getElementById('pairModal').classList.add('show');
+    setTimeout(() => document.getElementById('pairNameInput').focus(), 50);
+  }
+
+  async function savePairName() {
+    const name = document.getElementById('pairNameInput').value.trim();
+    if (name && pendingPairId) {
+      const cfg = await api('GET', '/api/config');
+      const labels = cfg.entityLabels || {};
+      labels[pendingPairId] = name;
+      await api('POST', '/api/config', { entityLabels: labels });
+      if (state.status === 'connected') await api('POST', '/api/refresh');
+    }
+    dismissPairModal();
+  }
+
+  function dismissPairModal() {
+    pendingPairId = null;
+    document.getElementById('pairModal').classList.remove('show');
+    document.getElementById('pairNameInput').value = '';
+    if (monitorQueue.length > 0) showPairModal(monitorQueue.shift());
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadConfig().then(connectWS);
+</script>
+</body>
+</html>
