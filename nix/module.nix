@@ -19,7 +19,7 @@ in
 
     port = mkOption {
       type = types.port;
-      default = 3000;
+      default = 7867;
       description = "Port the dashboard HTTP server listens on.";
     };
 

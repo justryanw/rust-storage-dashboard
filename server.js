@@ -508,7 +508,7 @@ wss.on('connection', (ws) => {
     try { ws.send(JSON.stringify(buildState())); } catch (e) { console.error('WS send error:', e.message); }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 7867;
 server.listen(PORT, () => {
     console.log(`Rust Storage Dashboard → http://localhost:${PORT}`);
     // Auto-start FCM pairing listener if credentials are available
