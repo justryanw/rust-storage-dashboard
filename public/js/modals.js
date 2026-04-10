@@ -64,9 +64,9 @@ function showItemModal(itemId) {
     const groupName = entityGroups[String(id)];
     if (groupName) {
       if (!groupBuckets[groupName]) groupBuckets[groupName] = [];
-      groupBuckets[groupName].push({ label: m?.label || `#${id}`, qty });
+      groupBuckets[groupName].push({ id: String(id), label: m?.label || `#${id}`, qty });
     } else {
-      ungrouped.push({ label: m?.label || `#${id}`, qty });
+      ungrouped.push({ id: String(id), label: m?.label || `#${id}`, qty });
     }
   }
 
@@ -74,23 +74,23 @@ function showItemModal(itemId) {
   for (const [groupName, members] of Object.entries(groupBuckets)) {
     const groupTotal = members.reduce((s, m) => s + m.qty, 0);
     rows.push(`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--radius);border-left:3px solid var(--accent)">
-        <span style="font-size:0.88rem;font-weight:700">🗃 ${escHtml(groupName)}</span>
+      <div class="item-modal-row item-modal-row-group" data-group="${escHtml(groupName)}" onclick="closeItemModal();showGroupModal(this.dataset.group)">
+        <span style="font-size:0.88rem;font-weight:700">${escHtml(groupName)}</span>
         <span style="font-weight:700;color:var(--accent2)">${groupTotal.toLocaleString()}</span>
       </div>`);
     for (const mem of members.sort((a, b) => b.qty - a.qty)) {
       rows.push(`
         <div style="margin-left:16px">
-        <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 12px;background:var(--bg);border-radius:var(--radius);border-left:2px solid var(--border)">
-          <span style="font-size:0.82rem;color:var(--text-muted)">📦 ${escHtml(mem.label)}</span>
+        <div class="item-modal-row item-modal-row-member" data-id="${mem.id}" onclick="closeItemModal();showMonitorModal(this.dataset.id)">
+          <span style="font-size:0.82rem;color:var(--text-muted)">${escHtml(mem.label)}</span>
           <span style="font-size:0.82rem;color:var(--accent2)">${mem.qty.toLocaleString()}</span>
         </div></div>`);
     }
   }
   for (const s of ungrouped.sort((a, b) => b.qty - a.qty)) {
     rows.push(`
-      <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--surface2);border-radius:var(--radius)">
-        <span style="font-size:0.88rem">📦 ${escHtml(s.label)}</span>
+      <div class="item-modal-row item-modal-row-ungrouped" data-id="${s.id}" onclick="closeItemModal();showMonitorModal(this.dataset.id)">
+        <span style="font-size:0.88rem">${escHtml(s.label)}</span>
         <span style="font-weight:700;color:var(--accent2)">${s.qty.toLocaleString()}</span>
       </div>`);
   }
@@ -184,6 +184,125 @@ async function savePairName() {
 
 function dismissPairModal() {
   _closeModal(null);
+}
+
+// ── Monitor detail modal ──────────────────────────────────────────────────────
+function showMonitorModal(entityId, fromGroup = null) {
+  const m = (state.monitors || {})[String(entityId)];
+  if (!m) return;
+  const usedSlots = (m.items || []).length;
+  const cap = m.capacity || 0;
+  const pct = cap ? Math.round((usedSlots / cap) * 100) : 0;
+  const isUnpowered = m.unpowered;
+  const isRemoved = m.error === 'not_found';
+  const groupName = ((state.config || {}).entityGroups || {})[String(entityId)] || null;
+  const statusBadge = isRemoved
+    ? `<span style="font-size:0.72rem;background:#3b0f0f;color:var(--red);border:1px solid #7f1d1d;border-radius:4px;padding:1px 6px">No Response</span>`
+    : isUnpowered
+    ? `<span style="font-size:0.72rem;background:#2a1f00;color:var(--yellow);border:1px solid #78580a;border-radius:4px;padding:1px 6px">Unpowered</span>`
+    : m.error
+    ? `<span class="monitor-error">⚠ ${escHtml(m.error)}</span>`
+    : `<span class="monitor-capacity">${usedSlots}/${cap} slots (${pct}%)</span>`;
+  const mergedItems = {};
+  for (const item of (m.items || [])) {
+    const key = String(item.itemId);
+    if (!mergedItems[key]) mergedItems[key] = { itemId: item.itemId, quantity: 0 };
+    mergedItems[key].quantity += item.quantity;
+  }
+  const itemsHTML = Object.values(mergedItems).sort((a, b) => b.quantity - a.quantity).map(item => `
+    <div class="monitor-item">
+      ${itemIconHTML(getItemShortname(item.itemId), 24)}
+      <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
+      <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
+    </div>`).join('');
+  document.getElementById('monitorDetailContent').innerHTML = `
+    ${fromGroup ? `<button class="modal-back-btn" onclick="closeMonitorModal();showGroupModal(this.dataset.group)" data-group="${escHtml(fromGroup)}">← ${escHtml(fromGroup)}</button>` : ''}
+    <div style="margin-bottom:12px">
+      <h2 style="margin-bottom:4px">${escHtml(m.label || m.entityId)}</h2>
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+        ${groupName ? `<span class="monitor-group-tag">${escHtml(groupName)}</span>` : ''}
+        ${statusBadge}
+      </div>
+    </div>
+    ${!m.error && !isUnpowered && cap ? `<div class="capacity-bar" style="margin-bottom:12px"><div class="capacity-fill" style="width:${pct}%"></div></div>` : ''}
+    <div class="detail-items">
+      ${isRemoved || isUnpowered ? `<div style="color:var(--text-muted);font-size:0.85rem">No data available</div>` : (itemsHTML || '<div style="color:var(--text-muted);font-size:0.85rem">Empty</div>')}
+    </div>`;
+  document.getElementById('monitorDetailModal').classList.add('show');
+}
+
+function closeMonitorModal() {
+  document.getElementById('monitorDetailModal').classList.remove('show');
+}
+
+// ── Group detail modal ────────────────────────────────────────────────────────
+function showGroupModal(groupName) {
+  const monitors = state.monitors || {};
+  const entityGroups = (state.config || {}).entityGroups || {};
+  const members = Object.entries(monitors)
+    .filter(([id]) => entityGroups[id] === groupName)
+    .map(([, m]) => m);
+
+  const mergedItems = {};
+  let totalUsed = 0, totalCap = 0;
+  for (const m of members) {
+    totalCap += m.capacity || 0;
+    totalUsed += (m.items || []).length;
+    for (const item of (m.items || [])) {
+      const key = String(item.itemId);
+      if (!mergedItems[key]) mergedItems[key] = { itemId: item.itemId, quantity: 0 };
+      mergedItems[key].quantity += item.quantity;
+    }
+  }
+  const pct = totalCap ? Math.round((totalUsed / totalCap) * 100) : 0;
+
+  const combinedHTML = Object.values(mergedItems).sort((a, b) => b.quantity - a.quantity).map(item => `
+    <div class="monitor-item">
+      ${itemIconHTML(getItemShortname(item.itemId), 24)}
+      <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
+      <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
+    </div>`).join('');
+
+  const memberCardsHTML = members.map(m => {
+    const used = (m.items || []).length;
+    const cap = m.capacity || 0;
+    const p = cap ? Math.round((used / cap) * 100) : 0;
+    const isUnpowered = m.unpowered;
+    const isRemoved = m.error === 'not_found';
+    const badge = isRemoved
+      ? `<span style="font-size:0.72rem;background:#3b0f0f;color:var(--red);border:1px solid #7f1d1d;border-radius:4px;padding:1px 6px">No Response</span>`
+      : isUnpowered
+      ? `<span style="font-size:0.72rem;background:#2a1f00;color:var(--yellow);border:1px solid #78580a;border-radius:4px;padding:1px 6px">Unpowered</span>`
+      : m.error
+      ? `<span class="monitor-error">⚠ ${escHtml(m.error)}</span>`
+      : `<span class="monitor-capacity">${used}/${cap} slots (${p}%)</span>`;
+    return `
+      <div class="detail-member-card" ${isRemoved ? 'style="opacity:0.5"' : ''} data-entity="${m.entityId}" data-group="${escHtml(groupName)}" onclick="showMonitorModal(this.dataset.entity,this.dataset.group)">
+        <div class="detail-member-header">
+          <span class="detail-member-name">${escHtml(m.label || m.entityId)}</span>
+          ${badge}
+        </div>
+        ${!m.error && !isUnpowered && cap ? `<div class="capacity-bar" style="margin:6px 12px 8px"><div class="capacity-fill" style="width:${p}%"></div></div>` : ''}
+      </div>`;
+  }).join('');
+
+  document.getElementById('groupDetailContent').innerHTML = `
+    <div style="margin-bottom:12px">
+      <h2 style="margin-bottom:4px">${escHtml(groupName)}</h2>
+      <span style="font-size:0.78rem;color:var(--text-muted)">${members.length} monitor${members.length !== 1 ? 's' : ''} · ${totalUsed}/${totalCap} slots (${pct}%)</span>
+    </div>
+    ${totalCap ? `<div class="capacity-bar" style="margin-bottom:16px"><div class="capacity-fill" style="width:${pct}%"></div></div>` : ''}
+    <div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">All Items</div>
+    <div class="detail-items" style="margin-bottom:20px">
+      ${combinedHTML || '<div style="color:var(--text-muted);font-size:0.85rem">Empty</div>'}
+    </div>
+    <div style="font-size:0.75rem;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Monitors</div>
+    <div style="display:flex;flex-direction:column;gap:8px">${memberCardsHTML}</div>`;
+  document.getElementById('groupDetailModal').classList.add('show');
+}
+
+function closeGroupModal() {
+  document.getElementById('groupDetailModal').classList.remove('show');
 }
 
 // ── Rename group modal ────────────────────────────────────────────────────────

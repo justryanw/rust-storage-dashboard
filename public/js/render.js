@@ -97,21 +97,6 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
   const isRemoved = m.error === 'not_found';
   const isUnpowered = m.unpowered;
   const groupName = ((state.config || {}).entityGroups || {})[String(m.entityId)] || null;
-  const mergedItems = {};
-  for (const item of (m.items || [])) {
-    const key = String(item.itemId);
-    if (!mergedItems[key]) mergedItems[key] = { itemId: item.itemId, quantity: 0 };
-    mergedItems[key].quantity += item.quantity;
-  }
-  const itemsHTML = Object.values(mergedItems)
-    .filter(item => !query || getItemName(item.itemId).toLowerCase().includes(query) || String(item.itemId).includes(query))
-    .sort((a, b) => b.quantity - a.quantity)
-    .map(item => `
-      <div class="monitor-item">
-        ${itemIconHTML(getItemShortname(item.itemId), 24)}
-        <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
-        <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
-      </div>`).join('');
   const statusBadge = isRemoved
     ? `<span style="font-size:0.72rem;background:#3b0f0f;color:var(--red);border:1px solid #7f1d1d;border-radius:4px;padding:1px 6px">No Response</span>`
     : isUnpowered
@@ -119,9 +104,24 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
     : m.error
     ? `<span class="monitor-error">⚠ ${escHtml(m.error)}</span>`
     : `<span class="monitor-capacity">${usedSlots}/${cap} slots (${pct}%)</span>`;
+  const mergedItems = {};
+  for (const item of (m.items || [])) {
+    const key = String(item.itemId);
+    if (!mergedItems[key]) mergedItems[key] = { itemId: item.itemId, quantity: 0 };
+    mergedItems[key].quantity += item.quantity;
+  }
+  const itemsHTML = query ? Object.values(mergedItems)
+    .filter(item => getItemName(item.itemId).toLowerCase().includes(query) || String(item.itemId).includes(query))
+    .sort((a, b) => b.quantity - a.quantity)
+    .map(item => `
+      <div class="monitor-item">
+        ${itemIconHTML(getItemShortname(item.itemId), 24)}
+        <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
+        <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
+      </div>`).join('') : '';
   return `
-    <div class="monitor-card" id="${cardId}" ${isRemoved ? 'style="opacity:0.5"' : ''}>
-      <div class="monitor-header" onclick="toggleMonitor(event)">
+    <div class="monitor-card" id="${cardId}" ${isRemoved ? 'style="opacity:0.5"' : ''} onclick="showMonitorModal('${m.entityId}')">
+      <div class="monitor-header">
         <div class="monitor-header-top">
           <span class="monitor-name">${escHtml(m.label || m.entityId)}</span>
           <button class="monitor-edit" onclick="editMonitor(event,'${m.entityId}')" title="Edit monitor">✏️</button>
@@ -132,29 +132,12 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
           ${statusBadge}
         </div>
       </div>
-      ${!m.error && !isUnpowered && cap ? `
-        <div class="capacity-bar-wrap" style="padding:0 16px 6px">
-          <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div>
-        </div>` : ''}
-      <div class="monitor-items">
-        ${isRemoved || isUnpowered ? '' : (itemsHTML || '<div style="color:var(--text-muted);font-size:0.82rem;padding:4px 0">Empty</div>')}
-      </div>
+      ${query && !m.error && !isUnpowered && cap ? `<div class="capacity-bar-wrap"><div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div></div>` : ''}
+      ${query ? `<div class="monitor-items" onclick="event.stopPropagation()">${itemsHTML || '<div style="color:var(--text-muted);font-size:0.82rem;padding:4px 0">No matches</div>'}</div>` : ''}
     </div>`;
 }
 
 // ── DOM diffing helpers ───────────────────────────────────────────────────────
-function patchInner(existingEl, newEl, selector) {
-  const a = existingEl.querySelector(selector);
-  const b = newEl.querySelector(selector);
-  if (a && b && a.innerHTML !== b.innerHTML) a.innerHTML = b.innerHTML;
-}
-
-function patchAttr(existingEl, newEl, selector, attr) {
-  const a = existingEl.querySelector(selector);
-  const b = newEl.querySelector(selector);
-  if (a && b && a.getAttribute(attr) !== b.getAttribute(attr)) a.setAttribute(attr, b.getAttribute(attr));
-}
-
 const cardCache = {};
 
 function updateGrid(grid, cards) {
@@ -175,22 +158,25 @@ function updateGrid(grid, cards) {
         const tmp = document.createElement('div');
         tmp.innerHTML = card.html;
         const newEl = tmp.firstElementChild;
-        // Patch inner sections — never recreate the scroll container
-        patchInner(el, newEl, '.monitor-items');
-        patchInner(el, newEl, '.group-items');
-        // Full header replacement for status badge / name changes
+        // Patch header for status badge / name changes
         const oldHeader = el.querySelector('.monitor-header, .group-header');
         const newHeader = newEl.querySelector('.monitor-header, .group-header');
         if (oldHeader && newHeader && oldHeader.innerHTML !== newHeader.innerHTML) {
           oldHeader.innerHTML = newHeader.innerHTML;
         }
-        // Capacity/group bar
-        const oldBar = el.querySelector('.group-bar, .capacity-bar-wrap');
-        const newBar = newEl.querySelector('.group-bar, .capacity-bar-wrap');
+        // Patch item lists and capacity bar (only present when searching)
+        for (const sel of ['.monitor-items', '.group-items']) {
+          const a = el.querySelector(sel), b = newEl.querySelector(sel);
+          if (a && b && a.innerHTML !== b.innerHTML) a.innerHTML = b.innerHTML;
+          else if (a && !b) a.remove();
+          else if (!a && b) el.appendChild(b);
+        }
+        const oldBar = el.querySelector('.capacity-bar-wrap');
+        const newBar = newEl.querySelector('.capacity-bar-wrap');
         if ((oldBar?.outerHTML || '') !== (newBar?.outerHTML || '')) {
           if (oldBar && newBar) oldBar.replaceWith(newBar);
           else if (oldBar) oldBar.remove();
-          else if (newBar) el.insertBefore(newBar, el.querySelector('.monitor-items, .group-items'));
+          else if (newBar) el.querySelector('.monitor-header, .group-header').after(newBar);
         }
       }
     } else {
@@ -450,9 +436,18 @@ function renderGroups() {
           <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
           <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
         </div>`).join('');
+    const filteredItemsHTML = query ? Object.values(mergedItems)
+      .filter(item => getItemName(item.itemId).toLowerCase().includes(query) || String(item.itemId).includes(query))
+      .sort((a, b) => b.quantity - a.quantity)
+      .map(item => `
+        <div class="monitor-item">
+          ${itemIconHTML(getItemShortname(item.itemId), 24)}
+          <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
+          <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
+        </div>`).join('') : '';
     const html = `
-      <div class="group-card" id="${gid}">
-        <div class="group-header" onclick="toggleGroup('${gid}')">
+      <div class="group-card" id="${gid}" data-group="${escHtml(groupName)}" onclick="showGroupModal(this.dataset.group)">
+        <div class="group-header">
           <div class="group-header-top">
             <span class="group-name">${escHtml(groupName)}</span>
             <button class="group-edit-btn" data-group="${escHtml(groupName)}" onclick="event.stopPropagation();showRenameGroupModal(this.dataset.group)" title="Rename group">✏️</button>
@@ -462,22 +457,14 @@ function renderGroups() {
             ${statusBadge}
           </div>
         </div>
-        ${totalCap ? `<div class="group-bar" style="padding:0 16px 6px;background:var(--surface2)">
-          <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div>
-        </div>` : ''}
-        <div class="group-items">
-          ${itemsHTML || '<div style="color:var(--text-muted);font-size:0.82rem;padding:4px 0">Empty</div>'}
-        </div>
+        ${query && totalCap ? `<div class="capacity-bar-wrap"><div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div></div>` : ''}
+        ${query ? `<div class="group-items" onclick="event.stopPropagation()">${filteredItemsHTML || '<div style="color:var(--text-muted);font-size:0.82rem;padding:4px 0">No matches</div>'}</div>` : ''}
       </div>`;
     return { id: gid, html };
   });
   updateGrid(grid, groupCards);
 }
 
-function toggleGroup(gid) {
-  const card = document.getElementById(gid);
-  if (card) card.classList.toggle('group-collapsed');
-}
 
 function renderSection(sectionId, gridId, entries, allEntries) {
   const section = document.getElementById(sectionId);
@@ -532,9 +519,6 @@ function showBanner(msg) {
   else { el.classList.remove('show'); }
 }
 
-function toggleMonitor(event) {
-  event.currentTarget.closest('.monitor-card').classList.toggle('monitor-collapsed');
-}
 
 function editMonitor(event, id) {
   event.stopPropagation();
