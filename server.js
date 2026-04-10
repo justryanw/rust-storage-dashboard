@@ -110,37 +110,11 @@ async function startPairing() {
 
             console.log(`Pairing: entityId=${entityId} type=${entityType} ip=${serverIp}`);
 
-            // entityType 3 = StorageMonitor
+            // entityType 3 = StorageMonitor — record the pending pairing but don't add yet.
+            // The client will call /api/monitor/confirm once the user names it.
             if (entityId && entityType === 3) {
                 const id = String(entityId);
-                lastPaired = { entityId: id, name, serverIp, serverPort, timestamp: new Date().toISOString() };
-
-                if (!config.entityIds) config.entityIds = [];
-                if (!config.entityIds.includes(Number(id))) {
-                    config.entityIds.push(Number(id));
-                    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-                }
-
-                if (connectionStatus === 'connected') {
-                    try {
-                        const info = await fetchEntityInfo(entityId);
-                        const p = info.payload || {};
-                        entityData[id] = {
-                            entityId: id,
-                            label: config.entityLabels?.[id] || name || `Monitor ${id}`,
-                            type: 3,
-                            capacity: p.capacity || 0,
-                            hasProtection: p.hasProtection || false,
-                            items: p.items || [],
-                            lastUpdated: new Date().toISOString(),
-                            error: null,
-                        };
-                        mergeInventory();
-                    } catch (e) {
-                        console.error('Failed to fetch paired entity:', e.message);
-                    }
-                }
-
+                lastPaired = { entityId: id, timestamp: new Date().toISOString() };
                 broadcastState();
             }
         } catch (e) {
@@ -387,6 +361,51 @@ app.delete('/api/monitor/:entityId', (req, res) => {
     if (config.entityLabels) delete config.entityLabels[id];
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
     mergeInventory();
+    broadcastState();
+    res.json({ success: true });
+});
+
+app.post('/api/monitor/confirm', async (req, res) => {
+    const { entityId, name } = req.body;
+    if (!entityId) return res.status(400).json({ error: 'entityId required' });
+    const id = String(entityId);
+
+    if (!config.entityIds) config.entityIds = [];
+    if (!config.entityIds.includes(Number(id))) config.entityIds.push(Number(id));
+    if (name) {
+        if (!config.entityLabels) config.entityLabels = {};
+        config.entityLabels[id] = name;
+    }
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+
+    if (connectionStatus === 'connected') {
+        try {
+            const info = await fetchEntityInfo(id);
+            const p = info.payload || {};
+            const unpowered = !p.capacity;
+            entityData[id] = {
+                entityId: id,
+                label: name || `Monitor ${id}`,
+                type: info.type,
+                capacity: p.capacity || 0,
+                hasProtection: p.hasProtection || false,
+                items: unpowered ? [] : (p.items || []),
+                unpowered,
+                lastUpdated: new Date().toISOString(),
+                error: null,
+            };
+            mergeInventory();
+        } catch (e) {
+            entityData[id] = {
+                entityId: id,
+                label: name || `Monitor ${id}`,
+                items: [],
+                error: e.message,
+                lastUpdated: new Date().toISOString(),
+            };
+        }
+    }
+
     broadcastState();
     res.json({ success: true });
 });

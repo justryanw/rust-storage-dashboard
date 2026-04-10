@@ -716,6 +716,14 @@
       if (id && rest.length) entityLabels[id.trim()] = rest.join('=').trim();
     });
 
+    // Prompt for names for any newly added entity IDs before saving
+    const currentIds = new Set((state.config.entityIds || []).map(String));
+    for (const id of entityIds.map(String).filter(id => !currentIds.has(id))) {
+      const name = await showPairModalAsync(id);
+      if (name) entityLabels[id] = name;
+      promptedIds.add(id);
+    }
+
     const token = document.getElementById('cfgToken').value;
     const gcmId = document.getElementById('cfgGcmId').value.trim();
     const gcmTok = document.getElementById('cfgGcmToken').value.trim();
@@ -956,6 +964,7 @@
     const monitors = state.monitors || {};
     const section = document.getElementById('monitorsSection');
     const grid = document.getElementById('monitorsGrid');
+
     const entries = Object.values(monitors);
 
     if (entries.length === 0) { section.style.display = 'none'; return; }
@@ -1036,32 +1045,59 @@
 
   // ── Pair name modal ───────────────────────────────────────────────────────
   let pendingPairId = null;
+  let pairModalResolve = null; // set in promise mode (saveConfig flow)
 
-  function showPairModal(paired) {
-    pendingPairId = paired.entityId;
-    document.getElementById('pairModalSub').textContent = `Entity ID: ${paired.entityId}`;
-    const existingLabel = (state.config.entityLabels || {})[paired.entityId];
+  function _openModal(entityId) {
+    pendingPairId = entityId;
+    const existingIds = new Set((state.config.entityIds || []).map(String));
+    const isExisting = existingIds.has(String(entityId));
+    document.querySelector('#pairModal h2').textContent = isExisting ? 'Rename Monitor' : 'Add Monitor';
+    document.getElementById('pairModalSub').textContent = `Entity ID: ${entityId}`;
+    const existingLabel = (state.config.entityLabels || {})[entityId];
     document.getElementById('pairNameInput').value = existingLabel || 'Storage Monitor';
     document.getElementById('pairModal').classList.add('show');
     setTimeout(() => document.getElementById('pairNameInput').focus(), 50);
   }
 
+  // Queue mode — used for pairing / auto-discovery
+  function showPairModal(paired) {
+    _openModal(paired.entityId);
+  }
+
+  // Promise mode — used by saveConfig to collect names before saving
+  function showPairModalAsync(entityId) {
+    return new Promise(resolve => {
+      pairModalResolve = resolve;
+      _openModal(entityId);
+    });
+  }
+
   async function savePairName() {
-    const name = document.getElementById('pairNameInput').value.trim();
-    if (name && pendingPairId) {
-      const cfg = await api('GET', '/api/config');
-      const labels = cfg.entityLabels || {};
-      labels[pendingPairId] = name;
-      await api('POST', '/api/config', { entityLabels: labels });
-      if (state.status === 'connected') await api('POST', '/api/refresh');
-    }
-    dismissPairModal();
+    await _closeModal(document.getElementById('pairNameInput').value.trim());
   }
 
   function dismissPairModal() {
+    _closeModal(null);
+  }
+
+  async function _closeModal(name) {
+    const id = pendingPairId;
     pendingPairId = null;
     document.getElementById('pairModal').classList.remove('show');
     document.getElementById('pairNameInput').value = '';
+
+    if (pairModalResolve) {
+      // Promise mode: hand the name back to saveConfig
+      const resolve = pairModalResolve;
+      pairModalResolve = null;
+      resolve(name);
+      return;
+    }
+
+    // Queue mode: only confirm if user didn't skip
+    if (name !== null) {
+      await api('POST', '/api/monitor/confirm', { entityId: id, name: name || undefined });
+    }
     if (monitorQueue.length > 0) showPairModal(monitorQueue.shift());
   }
 
