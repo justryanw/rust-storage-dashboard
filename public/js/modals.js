@@ -7,6 +7,47 @@ function closeConfigModal() {
   document.getElementById('configModal').classList.remove('show');
 }
 
+// ── Slots usage modal ─────────────────────────────────────────────────────────
+function showSlotsModal() {
+  // Count stacks (slots) per itemId across all monitors
+  const slotCounts = {};
+  for (const m of Object.values(state.monitors || {})) {
+    for (const item of (m.items || [])) {
+      const key = String(item.itemId);
+      slotCounts[key] = (slotCounts[key] || 0) + 1;
+    }
+  }
+
+  const items = Object.values(state.inventory || {})
+    .map(item => ({ ...item, slots: slotCounts[String(item.itemId)] || 0 }))
+    .filter(item => item.slots > 0)
+    .sort((a, b) => b.slots - a.slots || b.quantity - a.quantity);
+
+  const totalUsed = items.reduce((s, i) => s + i.slots, 0);
+  const monitors = Object.values(state.monitors || {}).filter(m => !m.error && !m.unpowered);
+  const totalSlots = monitors.reduce((s, m) => s + (m.capacity || 0), 0);
+
+  document.getElementById('slotsModalSub').textContent =
+    `${totalUsed} of ${totalSlots} slots used across ${items.length} item type${items.length !== 1 ? 's' : ''}`;
+
+  document.getElementById('slotsModalList').innerHTML = items.map(item => {
+    const pct = totalUsed > 0 ? (item.slots / totalUsed) * 100 : 0;
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--surface2);border-radius:var(--radius)">
+        ${itemIconHTML(item.shortname, 24)}
+        <span style="flex:1;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(item.name)}</span>
+        <span style="font-size:0.78rem;color:var(--text-muted);white-space:nowrap">${item.quantity.toLocaleString()} qty</span>
+        <span style="font-weight:700;color:var(--accent2);white-space:nowrap;min-width:52px;text-align:right">${item.slots} slot${item.slots !== 1 ? 's' : ''}</span>
+      </div>`;
+  }).join('');
+
+  document.getElementById('slotsModal').classList.add('show');
+}
+
+function closeSlotsModal() {
+  document.getElementById('slotsModal').classList.remove('show');
+}
+
 // ── Item detail modal ─────────────────────────────────────────────────────────
 function showItemModal(itemId) {
   const item = Object.values(state.inventory || {}).find(i => i.itemId === itemId);
