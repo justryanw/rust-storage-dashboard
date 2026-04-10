@@ -81,7 +81,6 @@ in
         RestrictAddressFamilies = [ "AF_INET" "AF_INET6" ];
         RestrictNamespaces = true;
         LockPersonality = true;
-        MemoryDenyWriteExecute = true;
         RestrictRealtime = true;
         RestrictSUIDSGID = true;
         RemoveIPC = true;
