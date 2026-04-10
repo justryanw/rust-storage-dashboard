@@ -6,6 +6,13 @@ const PushReceiverClient = require('@liamcottle/push-receiver/src/client');
 const fs = require('fs');
 const path = require('path');
 
+process.on('uncaughtException', (err) => {
+    console.error('Uncaught exception (continuing):', err.message);
+});
+process.on('unhandledRejection', (reason) => {
+    console.error('Unhandled rejection (continuing):', reason?.message ?? reason);
+});
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
