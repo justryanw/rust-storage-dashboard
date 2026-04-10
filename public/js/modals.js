@@ -117,7 +117,7 @@ function renderGroupDropdown(groups) {
   const query = document.getElementById('pairGroupInput').value.toLowerCase();
   const filtered = groups.filter(g => g.toLowerCase().includes(query));
   dropdown.innerHTML = filtered.length
-    ? filtered.map(g => `<div class="group-dropdown-item" onmousedown="selectGroup(${JSON.stringify(g)})">${escHtml(g)}</div>`).join('')
+    ? filtered.map(g => `<div class="group-dropdown-item" onmousedown='selectGroup(${JSON.stringify(g)})'>${escHtml(g)}</div>`).join('')
     : (groups.length ? '<div class="group-dropdown-empty">No matches</div>' : '<div class="group-dropdown-empty">No existing groups</div>');
 }
 
@@ -127,15 +127,21 @@ function toggleGroupDropdown() {
   if (isOpen) { closeGroupDropdown(); } else { openGroupDropdown(); }
 }
 
+function _groupClickOutside(e) {
+  if (!document.getElementById('groupCombobox').contains(e.target)) closeGroupDropdown();
+}
+
 function openGroupDropdown() {
   const groups = JSON.parse(document.getElementById('groupCombobox').dataset.groups || '[]');
   renderGroupDropdown(groups);
   document.getElementById('groupDropdown').style.display = '';
   document.getElementById('pairGroupInput').focus();
+  document.addEventListener('mousedown', _groupClickOutside);
 }
 
 function closeGroupDropdown() {
   document.getElementById('groupDropdown').style.display = 'none';
+  document.removeEventListener('mousedown', _groupClickOutside);
 }
 
 function filterGroupDropdown() {
