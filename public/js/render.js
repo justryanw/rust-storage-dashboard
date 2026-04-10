@@ -123,7 +123,7 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
     <div class="monitor-card" id="${cardId}" ${isRemoved ? 'style="opacity:0.5"' : ''}>
       <div class="monitor-header" onclick="toggleMonitor(event)">
         <div class="monitor-header-top">
-          <span class="monitor-name">📦 ${escHtml(m.label || m.entityId)}</span>
+          <span class="monitor-name">${escHtml(m.label || m.entityId)}</span>
           <button class="monitor-edit" onclick="editMonitor(event,'${m.entityId}')" title="Edit monitor">✏️</button>
           <button class="monitor-delete" onclick="removeMonitor(event,'${m.entityId}')" title="Remove monitor">🗑</button>
         </div>
@@ -453,10 +453,14 @@ function renderGroups() {
     const html = `
       <div class="group-card" id="${gid}">
         <div class="group-header" onclick="toggleGroup('${gid}')">
-          <span class="group-name">🗃 ${escHtml(groupName)}</span>
-          <span style="font-size:0.72rem;color:var(--text-muted)">${members.length} monitor${members.length !== 1 ? 's' : ''}</span>
-          ${statusBadge}
-          <button class="group-edit-btn" data-group="${escHtml(groupName)}" onclick="event.stopPropagation();showRenameGroupModal(this.dataset.group)" title="Rename group">✏️</button>
+          <div class="group-header-top">
+            <span class="group-name">${escHtml(groupName)}</span>
+            <button class="group-edit-btn" data-group="${escHtml(groupName)}" onclick="event.stopPropagation();showRenameGroupModal(this.dataset.group)" title="Rename group">✏️</button>
+          </div>
+          <div class="group-header-meta">
+            <span style="font-size:0.72rem;color:var(--text-muted)">${members.length} monitor${members.length !== 1 ? 's' : ''}</span>
+            ${statusBadge}
+          </div>
         </div>
         ${totalCap ? `<div class="group-bar" style="padding:0 16px 6px;background:var(--surface2)">
           <div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div>

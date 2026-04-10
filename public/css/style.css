@@ -385,13 +385,15 @@ textarea { min-height: 70px; resize: vertical; }
 .groups-section { margin-top: 28px; }
 .groups-section h2 { font-size: 0.95rem; font-weight: 700; color: var(--text-muted); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
 .group-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
-.group-header { padding: 12px 16px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.group-header { padding: 10px 16px; background: var(--surface2); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 5px; cursor: pointer; user-select: none; }
 .group-header:hover { background: #2a2f45; }
-.group-name { font-weight: 700; font-size: 0.9rem; flex: 1; }
+.group-header:hover .group-edit-btn { opacity: 1; }
+.group-header-top { display: flex; align-items: center; gap: 6px; }
+.group-header-meta { display: flex; align-items: center; gap: 6px; }
+.group-name { font-weight: 700; font-size: 0.9rem; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .group-collapsed .group-items { display: none; }
 .group-collapsed .group-bar { display: none; }
 .group-edit-btn { opacity: 0; background: none; border: none; cursor: pointer; font-size: 0.9rem; padding: 3px 5px; border-radius: 4px; line-height: 1; }
-.group-header:hover .group-edit-btn { opacity: 1; }
 .group-edit-btn:hover { background: rgba(232,98,42,0.15); }
 
 /* ── Group combobox ── */
