@@ -74,6 +74,9 @@
     .status-badge.connected .status-dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
     .status-badge.disconnected .status-dot { background: var(--text-muted); }
     .status-badge.connecting .status-dot { background: var(--yellow); animation: pulse 1s infinite; }
+    .status-badge.reconnecting .status-dot { background: var(--yellow); }
+    .status-badge.reconnecting .status-dot.flash { animation: reconnect-flash 0.6s ease-out; }
+    @keyframes reconnect-flash { 0% { opacity:1; transform:scale(1); } 40% { opacity:0.15; transform:scale(1.8); } 100% { opacity:1; transform:scale(1); } }
     .status-badge.error .status-dot { background: var(--red); }
 
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
@@ -466,7 +469,6 @@
   </div>
   <button class="refresh-btn" id="refreshBtn" disabled onclick="apiRefresh()" title="Refresh"><span>↻</span></button>
   <button class="refresh-btn" onclick="openConfigModal()" title="Settings"><span>⚙</span></button>
-  <button class="btn btn-primary" id="connectBtn" onclick="toggleConnect()">Connect</button>
 </header>
 
 <div class="container">
@@ -475,7 +477,7 @@
   <div class="error-banner" id="errorBanner"></div>
 
   <!-- Stats bar -->
-  <div class="stats-bar">
+  <div class="stats-bar" id="statsBar">
     <div class="stat-card">
       <div class="stat-label">Unique Items</div>
       <div class="stat-value" id="statItems">—</div>
@@ -512,7 +514,7 @@
   </div>
 
   <!-- Inventory controls -->
-  <div class="controls">
+  <div class="controls" id="controlsBar">
     <div class="search-wrap">
       <span class="search-icon">🔍</span>
       <input id="searchInput" type="text" placeholder="Search items…" oninput="renderInventory();renderMonitors()" />
@@ -615,8 +617,10 @@
   let ws = null;
   let currentView = 'grid';
   let wsReconnectTimer = null;
+  let autoReconnectTimer = null;
   let pollBarStart = null;
   const POLL_INTERVAL = 5000;
+  const RECONNECT_INTERVAL = 5000;
 
   function animatePollBar() {
     const btn = document.getElementById('refreshBtn');
@@ -633,6 +637,21 @@
   function resetPollBar() {
     pollBarStart = Date.now();
     requestAnimationFrame(animatePollBar);
+    // Restart bar locally every poll interval so it doesn't stick at 100%
+    // while waiting for the server to respond
+    clearTimeout(resetPollBar._timer);
+    resetPollBar._timer = setTimeout(() => {
+      if (state.status === 'connected') resetPollBar();
+    }, POLL_INTERVAL);
+  }
+
+  function flashReconnectDot() {
+    const dot = document.querySelector('#statusBadge .status-dot');
+    if (!dot) return;
+    dot.classList.remove('flash');
+    void dot.offsetWidth; // force reflow to restart animation
+    dot.classList.add('flash');
+    dot.addEventListener('animationend', () => dot.classList.remove('flash'), { once: true });
   }
   const sessionStart = new Date().toISOString();
   let lastHandledPairTimestamp = null;
@@ -650,7 +669,12 @@
         const newState = JSON.parse(e.data);
         state = newState;
         render();
-        if (state.status === 'connected') resetPollBar();
+        if (state.status === 'connected') {
+          resetPollBar();
+          clearTimeout(autoReconnectTimer);
+        } else if (state.status === 'disconnected') {
+          scheduleAutoReconnect();
+        }
       } catch (_) {}
     };
 
@@ -660,6 +684,18 @@
     };
 
     ws.onerror = () => ws.close();
+  }
+
+  function scheduleAutoReconnect() {
+    clearTimeout(autoReconnectTimer);
+    const cfg = state.config || {};
+    if (!cfg.serverIp || !cfg.appPort || !cfg.steamId || !cfg.playerToken) return;
+    autoReconnectTimer = setTimeout(() => {
+      if (state.status === 'disconnected') {
+        flashReconnectDot();
+        api('POST', '/api/connect').catch(() => {});
+      }
+    }, RECONNECT_INTERVAL);
   }
 
   // ── API helpers ───────────────────────────────────────────────────────────
@@ -672,18 +708,6 @@
     return res.json();
   }
 
-  async function toggleConnect() {
-    const btn = document.getElementById('connectBtn');
-    if (state.status === 'connected' || state.status === 'connecting') {
-      btn.disabled = true;
-      await api('POST', '/api/disconnect');
-      btn.disabled = false;
-    } else {
-      btn.disabled = true;
-      await api('POST', '/api/connect');
-      btn.disabled = false;
-    }
-  }
 
   async function apiRefresh() {
     const btn = document.getElementById('refreshBtn');
@@ -700,10 +724,10 @@
       serverIp: document.getElementById('cfgIp').value.trim(),
       appPort: parseInt(document.getElementById('cfgPort').value) || 28082,
       steamId: document.getElementById('cfgSteamId').value.trim(),
-      ...(gcmId && { gcmAndroidId: gcmId }),
-      ...(gcmTok && !gcmTok.includes('•') && { gcmSecurityToken: gcmTok }),
+      gcmAndroidId: gcmId,
     };
-    if (token && !token.includes('•')) body.playerToken = token;
+    if (!token.includes('•')) body.playerToken = token;
+    if (!gcmTok.includes('•')) body.gcmSecurityToken = gcmTok;
     const res = await api('POST', '/api/config', body);
     if (res.success) closeConfigModal();
   }
@@ -755,18 +779,23 @@
   function renderStatus() {
     const badge = document.getElementById('statusBadge');
     const text = document.getElementById('statusText');
-    const connectBtn = document.getElementById('connectBtn');
     const refreshBtn = document.getElementById('refreshBtn');
 
     const { status, error } = state;
-    badge.className = `status-badge ${status}`;
-    const labels = { connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting…', error: 'Error' };
-    text.textContent = labels[status] || status;
+    const cfg = state.config || {};
+    const hasConfig = cfg.serverIp && cfg.appPort && cfg.steamId && cfg.playerToken;
+    const autoReconnecting = status === 'disconnected' && hasConfig;
 
-    connectBtn.textContent = (status === 'connected' || status === 'connecting') ? 'Disconnect' : 'Connect';
-    connectBtn.className = `btn ${(status === 'connected' || status === 'connecting') ? 'btn-danger' : 'btn-primary'}`;
+    badge.className = `status-badge ${autoReconnecting ? 'reconnecting' : status}`;
+    const labels = { connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting…', reconnecting: 'Reconnecting…', error: 'Error' };
+    text.textContent = labels[autoReconnecting ? 'reconnecting' : status] || status;
+
     refreshBtn.disabled = status !== 'connected';
     if (status !== 'connected') { pollBarStart = null; document.getElementById('refreshBtn').style.background = ''; }
+
+    const connected = status === 'connected';
+    document.getElementById('statsBar').style.display = connected ? '' : 'none';
+    document.getElementById('controlsBar').style.display = connected ? '' : 'none';
 
     showBanner(status === 'error' && error ? `Connection error: ${error}` : null);
 
@@ -860,7 +889,7 @@
           <h3>${isConnected ? 'No items found' : 'Not connected'}</h3>
           <p>${isConnected
             ? 'No storage monitors have items, or no entity IDs are configured.'
-            : 'Configure your server details and click Connect to start monitoring.'}
+            : 'Configure your server details to start monitoring.'}
           </p>
         </div>`;
       return;

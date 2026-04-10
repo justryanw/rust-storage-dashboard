@@ -180,9 +180,20 @@ function mergeInventory() {
     combinedInventory = merged;
 }
 
+function pingServer() {
+    return new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
+        rustplus.getTime((message) => {
+            clearTimeout(timeout);
+            if (message.response && message.response.time) resolve();
+            else reject(new Error('No time response'));
+        });
+    });
+}
+
 function fetchEntityInfo(entityId) {
     return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Timeout')), 10000);
+        const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
         rustplus.getEntityInfo(parseInt(entityId), (message) => {
             clearTimeout(timeout);
             if (message.response && message.response.entityInfo) {
@@ -196,16 +207,39 @@ function fetchEntityInfo(entityId) {
     });
 }
 
+function markConnectionLost() {
+    console.warn('Connection appears lost, disconnecting');
+    clearInterval(pollTimer);
+    pollTimer = null;
+    if (rustplus) { try { rustplus.disconnect(); } catch (_) {} rustplus = null; }
+    connectionStatus = 'disconnected';
+    connectionError = 'Connection lost';
+    broadcastState();
+}
+
 async function refreshAllEntities() {
     const entityIds = config.entityIds || [];
-    for (const entityId of entityIds) {
-        try {
-            const info = await fetchEntityInfo(entityId);
+
+    // If no monitors configured, probe with a lightweight ping instead
+    if (entityIds.length === 0) {
+        try { await pingServer(); } catch (_) { markConnectionLost(); }
+        return;
+    }
+
+    // Fetch all entities in parallel so timeouts don't stack sequentially
+    const results = await Promise.allSettled(entityIds.map(entityId => fetchEntityInfo(entityId)));
+
+    let failures = 0;
+    results.forEach((result, i) => {
+        const entityId = entityIds[i];
+        const id = String(entityId);
+        if (result.status === 'fulfilled') {
+            const info = result.value;
             const payload = info.payload || {};
             const unpowered = !payload.capacity;
-            entityData[String(entityId)] = {
-                entityId: String(entityId),
-                label: config.entityLabels?.[String(entityId)] || `Monitor ${entityId}`,
+            entityData[id] = {
+                entityId: id,
+                label: config.entityLabels?.[id] || `Monitor ${entityId}`,
                 type: info.type,
                 capacity: payload.capacity || 0,
                 hasProtection: payload.hasProtection || false,
@@ -215,17 +249,25 @@ async function refreshAllEntities() {
                 lastUpdated: new Date().toISOString(),
                 error: null,
             };
-        } catch (e) {
-            console.error(`Entity ${entityId} error:`, e.message);
-            entityData[String(entityId)] = {
-                entityId: String(entityId),
-                label: config.entityLabels?.[String(entityId)] || `Monitor ${entityId}`,
+        } else {
+            console.error(`Entity ${entityId} error:`, result.reason.message);
+            failures++;
+            entityData[id] = {
+                entityId: id,
+                label: config.entityLabels?.[id] || `Monitor ${entityId}`,
                 items: [],
-                error: e.message,
+                error: result.reason.message,
                 lastUpdated: new Date().toISOString(),
             };
         }
+    });
+
+    // If every entity timed out, the underlying connection is dead
+    if (failures === entityIds.length) {
+        markConnectionLost();
+        return;
     }
+
     mergeInventory();
 }
 
@@ -325,15 +367,35 @@ app.get('/api/config', (_, res) => res.json(safeConfig()));
 
 app.post('/api/config', (req, res) => {
     const { playerToken, ...fields } = req.body;
-    // Only update playerToken if a real value (not masked) was sent
-    if (playerToken && !playerToken.includes('•')) {
+    config = { ...config, ...fields };
+    // Update playerToken if explicitly sent and not the masked placeholder
+    if (playerToken !== undefined && !String(playerToken).includes('•')) {
         config.playerToken = playerToken;
     }
-    config = { ...config, ...fields };
-    if (fields.playerToken !== undefined && !fields.playerToken.includes('•')) {
-        config.playerToken = fields.playerToken;
-    }
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+
+    const hasConnection = config.serverIp && config.appPort && config.steamId && config.playerToken;
+
+    if (!hasConnection) {
+        // Config is now incomplete — disconnect if needed, always broadcast so client reflects new config
+        if (connectionStatus === 'connected' || connectionStatus === 'connecting') {
+            clearInterval(pollTimer);
+            pollTimer = null;
+            if (rustplus) { try { rustplus.disconnect(); } catch (_) {} rustplus = null; }
+            connectionStatus = 'disconnected';
+            connectionError = null;
+            entityData = {};
+            combinedInventory = {};
+        }
+        broadcastState();
+    } else if (connectionStatus === 'connected' || connectionStatus === 'connecting') {
+        // Config changed while connected — reconnect with new details
+        connectToServer(config).catch(console.error);
+    } else {
+        // Config is complete and we're disconnected — trigger auto-connect
+        connectToServer(config).catch(console.error);
+    }
+
     res.json({ success: true });
 });
 
