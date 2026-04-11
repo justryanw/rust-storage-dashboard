@@ -30,6 +30,45 @@ let combinedInventory = {};
 let entityData = {};
 let connectionStatus = 'disconnected';
 let unpowerTimers = {};
+
+// Token bucket matching Rust+ PlayerID limits (tighter than IP limits)
+// 25 tokens max, replenished at 3/sec
+class TokenBucket {
+    constructor(max, ratePerSec) {
+        this.max = max;
+        this.tokens = max;
+        this.rate = ratePerSec;
+        this.last = Date.now();
+        this.queue = [];
+        this._scheduled = false;
+    }
+    _refill() {
+        const now = Date.now();
+        this.tokens = Math.min(this.max, this.tokens + (now - this.last) / 1000 * this.rate);
+        this.last = now;
+    }
+    acquire(cost = 1) {
+        return new Promise(resolve => {
+            this.queue.push({ cost, resolve });
+            this._drain();
+        });
+    }
+    _drain() {
+        if (this._scheduled) return;
+        this._refill();
+        while (this.queue.length > 0 && this.tokens >= this.queue[0].cost) {
+            const { cost, resolve } = this.queue.shift();
+            this.tokens -= cost;
+            resolve();
+        }
+        if (this.queue.length > 0) {
+            const wait = Math.ceil((this.queue[0].cost - this.tokens) / this.rate * 1000);
+            this._scheduled = true;
+            setTimeout(() => { this._scheduled = false; this._drain(); }, wait);
+        }
+    }
+}
+const rateLimiter = new TokenBucket(25, 3);
 let connectionError = null;
 let pairing = false;
 let pushClient = null;
@@ -184,7 +223,8 @@ function mergeInventory() {
     combinedInventory = merged;
 }
 
-function pingServer() {
+async function pingServer() {
+    await rateLimiter.acquire(1); // get_time costs 1
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
         rustplus.getTime((message) => {
@@ -195,7 +235,8 @@ function pingServer() {
     });
 }
 
-function fetchEntityInfo(entityId) {
+async function fetchEntityInfo(entityId) {
+    await rateLimiter.acquire(1); // get_entity_info costs 1
     return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
         rustplus.getEntityInfo(parseInt(entityId), (message) => {
@@ -228,8 +269,9 @@ async function refreshAllEntities() {
         return;
     }
 
-    // Fetch all entities in parallel so timeouts don't stack sequentially
-    const results = await Promise.allSettled(entityIds.map(entityId => fetchEntityInfo(entityId)));
+    // Fire all requests concurrently — the token bucket in fetchEntityInfo
+    // paces them to stay within Rust+ rate limits (25 burst, 3/sec sustained)
+    const results = await Promise.allSettled(entityIds.map(id => fetchEntityInfo(id)));
 
     let failures = 0;
     results.forEach((result, i) => {
@@ -306,10 +348,9 @@ async function connectToServer(cfg) {
         const entityId = String(changed.entityId);
         const payload = changed.payload;
 
-        // value:true may be a power-loss or just the first of two item-change broadcasts.
-        // Debounce: if no value:false follows within 500ms, fetch entity info to confirm
-        // actual state rather than assuming unpowered — rapid item changes can produce
-        // a burst of value:true messages with no value:false until the burst ends.
+        // value:true signals a change but carries no item data. It fires for both
+        // power loss and item changes. Debounce: 500ms after the last value:true
+        // with no value:false, fetch to confirm actual state.
         if (payload.value === true && entityData[entityId] !== undefined) {
             clearTimeout(unpowerTimers[entityId]);
             unpowerTimers[entityId] = setTimeout(async () => {
