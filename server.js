@@ -356,6 +356,15 @@ async function connectToServer(cfg) {
 
 app.get('/api/state', (_, res) => res.json(buildState()));
 
+app.get('/api/items', (_, res) => {
+    const items = Object.entries(itemNames).map(([id, entry]) => ({
+        itemId: Number(id),
+        name: (entry && entry.name) || entry || `Item #${id}`,
+        shortname: (entry && entry.shortname) || null,
+    }));
+    res.json(items);
+});
+
 app.get('/api/config', (_, res) => res.json(safeConfig()));
 
 app.post('/api/config', (req, res) => {
