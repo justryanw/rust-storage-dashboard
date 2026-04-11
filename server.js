@@ -31,16 +31,18 @@ let entityData = {};
 let connectionStatus = 'disconnected';
 let unpowerTimers = {};
 
-// Token bucket matching Rust+ PlayerID limits (tighter than IP limits)
-// 25 tokens max, replenished at 3/sec
+// Token bucket matching Rust+ PlayerID limits (tighter than IP limits):
+// 25 max, 3/sec replenishment. Enforces a minimum interval between releases
+// so burst tokens are still released one-at-a-time rather than all at once.
 class TokenBucket {
     constructor(max, ratePerSec) {
         this.max = max;
-        this.tokens = max;
+        this.tokens = 0; // start at 0 — don't assume burst is available
         this.rate = ratePerSec;
         this.last = Date.now();
         this.queue = [];
         this._scheduled = false;
+        this.minInterval = Math.ceil(1000 / ratePerSec); // ms between releases
     }
     _refill() {
         const now = Date.now();
@@ -56,16 +58,27 @@ class TokenBucket {
     _drain() {
         if (this._scheduled) return;
         this._refill();
-        while (this.queue.length > 0 && this.tokens >= this.queue[0].cost) {
-            const { cost, resolve } = this.queue.shift();
-            this.tokens -= cost;
-            resolve();
-        }
-        if (this.queue.length > 0) {
-            const wait = Math.ceil((this.queue[0].cost - this.tokens) / this.rate * 1000);
+        if (this.queue.length === 0) return;
+        const next = this.queue[0];
+        if (this.tokens >= next.cost) {
+            this.tokens -= next.cost;
+            this.queue.shift().resolve();
+            if (this.queue.length > 0) {
+                // Always enforce minimum interval between releases even during burst
+                this._scheduled = true;
+                setTimeout(() => { this._scheduled = false; this._drain(); }, this.minInterval);
+            }
+        } else {
+            const wait = Math.ceil((next.cost - this.tokens) / this.rate * 1000);
             this._scheduled = true;
             setTimeout(() => { this._scheduled = false; this._drain(); }, wait);
         }
+    }
+    reset() {
+        this.tokens = 0;
+        this.last = Date.now();
+        this.queue = [];
+        this._scheduled = false;
     }
 }
 const rateLimiter = new TokenBucket(25, 3);
@@ -269,51 +282,69 @@ async function refreshAllEntities() {
         return;
     }
 
-    // Fire all requests concurrently — the token bucket in fetchEntityInfo
-    // paces them to stay within Rust+ rate limits (25 burst, 3/sec sustained)
+    await fetchAndApplyEntities(entityIds);
+    mergeInventory();
+}
+
+function applyEntityResult(entityId, info) {
+    const id = String(entityId);
+    const payload = info.payload || {};
+    const unpowered = !payload.capacity;
+    entityData[id] = {
+        entityId: id,
+        label: config.entityLabels?.[id] || `Monitor ${entityId}`,
+        type: info.type,
+        capacity: payload.capacity || 0,
+        hasProtection: payload.hasProtection || false,
+        protectionExpiry: payload.protectionExpiry || 0,
+        items: unpowered ? [] : (payload.items || []),
+        unpowered,
+        lastUpdated: new Date().toISOString(),
+        error: null,
+    };
+}
+
+async function fetchAndApplyEntities(entityIds) {
     const results = await Promise.allSettled(entityIds.map(id => fetchEntityInfo(id)));
 
     let failures = 0;
+    const rateLimited = [];
+
     results.forEach((result, i) => {
         const entityId = entityIds[i];
         const id = String(entityId);
         if (result.status === 'fulfilled') {
-            const info = result.value;
-            const payload = info.payload || {};
-            const unpowered = !payload.capacity;
-            entityData[id] = {
-                entityId: id,
-                label: config.entityLabels?.[id] || `Monitor ${entityId}`,
-                type: info.type,
-                capacity: payload.capacity || 0,
-                hasProtection: payload.hasProtection || false,
-                protectionExpiry: payload.protectionExpiry || 0,
-                items: unpowered ? [] : (payload.items || []),
-                unpowered,
-                lastUpdated: new Date().toISOString(),
-                error: null,
-            };
+            applyEntityResult(entityId, result.value);
         } else {
-            console.error(`Entity ${entityId} error:`, result.reason.message);
+            const msg = result.reason.message;
             failures++;
-            entityData[id] = {
-                entityId: id,
-                label: config.entityLabels?.[id] || `Monitor ${entityId}`,
-                items: [],
-                error: result.reason.message,
-                lastUpdated: new Date().toISOString(),
-            };
+            if (msg.includes('rate_limit')) {
+                console.warn(`Entity ${entityId} rate limited — will retry`);
+                rateLimited.push(entityId);
+                // Leave existing entityData in place if available; otherwise stub
+                if (!entityData[id]) {
+                    entityData[id] = { entityId: id, label: config.entityLabels?.[id] || `Monitor ${entityId}`, items: [], error: 'rate_limit', lastUpdated: new Date().toISOString() };
+                }
+            } else {
+                console.error(`Entity ${entityId} error:`, msg);
+                entityData[id] = { entityId: id, label: config.entityLabels?.[id] || `Monitor ${entityId}`, items: [], error: msg, lastUpdated: new Date().toISOString() };
+            }
         }
     });
 
-    // If every entity timed out, ping to confirm the connection is actually dead
-    // (a single bad entity response can cause timeouts without a real disconnect)
-    if (failures === entityIds.length) {
+    // If every entity failed (not just rate limited), check if connection is alive
+    if (failures === entityIds.length && rateLimited.length === 0) {
         try { await pingServer(); } catch (_) { markConnectionLost(); }
         return;
     }
 
     mergeInventory();
+    broadcastState();
+
+    // Retry rate-limited entities — they'll be paced by the token bucket
+    if (rateLimited.length > 0) {
+        await fetchAndApplyEntities(rateLimited);
+    }
 }
 
 async function connectToServer(cfg) {
@@ -327,6 +358,7 @@ async function connectToServer(cfg) {
     combinedInventory = {};
     connectionError = null;
     connectionStatus = 'connecting';
+    rateLimiter.reset(); // fresh bucket on each connection attempt
     broadcastState();
 
     rustplus = new RustPlus(cfg.serverIp, parseInt(cfg.appPort), cfg.steamId, parseInt(cfg.playerToken));
@@ -338,7 +370,6 @@ async function connectToServer(cfg) {
         broadcastState();
 
         await refreshAllEntities();
-        broadcastState();
     });
 
     rustplus.on('message', async (message) => {
