@@ -341,17 +341,16 @@ function renderStats() {
 
   // Upkeep card — find the earliest protectionExpiry across all monitors
   const now = Math.floor(Date.now() / 1000);
-  const expiries = Object.values(state.monitors || {})
-    .filter(m => m.hasProtection && m.protectionExpiry > 0)
-    .map(m => m.protectionExpiry);
+  const protected_ = Object.values(state.monitors || {})
+    .filter(m => m.hasProtection && m.protectionExpiry > 0);
   const upkeepCard = document.getElementById('statUpkeepCard');
-  if (expiries.length > 0) {
-    const minExpiry = Math.min(...expiries);
-    const remaining = minExpiry - now;
+  if (protected_.length > 0) {
+    const earliest = protected_.reduce((a, b) => a.protectionExpiry < b.protectionExpiry ? a : b);
+    const remaining = earliest.protectionExpiry - now;
+    const locationName = earliest.label || `#${earliest.entityId}`;
     document.getElementById('statUpkeepTime').textContent = fmtDuration(remaining);
     document.getElementById('statUpkeepTime').style.color = upkeepColor(remaining);
-    const expDate = new Date(minExpiry * 1000);
-    document.getElementById('statUpkeepSub').textContent = `expires ${expDate.toLocaleDateString()} ${expDate.toLocaleTimeString()}`;
+    document.getElementById('statUpkeepSub').textContent = locationName;
     upkeepCard.style.display = '';
   } else {
     upkeepCard.style.display = 'none';
