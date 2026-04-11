@@ -307,17 +307,29 @@ async function connectToServer(cfg) {
         const payload = changed.payload;
 
         // value:true may be a power-loss or just the first of two item-change broadcasts.
-        // Debounce: if no value:false follows within 500ms, treat as unpowered.
+        // Debounce: if no value:false follows within 500ms, fetch entity info to confirm
+        // actual state rather than assuming unpowered — rapid item changes can produce
+        // a burst of value:true messages with no value:false until the burst ends.
         if (payload.value === true && entityData[entityId] !== undefined) {
             clearTimeout(unpowerTimers[entityId]);
-            unpowerTimers[entityId] = setTimeout(() => {
-                if (entityData[entityId]) {
+            unpowerTimers[entityId] = setTimeout(async () => {
+                if (!entityData[entityId]) return;
+                try {
+                    const info = await fetchEntityInfo(entityId);
+                    const p = info.payload || {};
+                    const unpowered = !p.capacity;
+                    entityData[entityId].unpowered = unpowered;
+                    entityData[entityId].items = unpowered ? [] : (p.items || []);
+                    entityData[entityId].capacity = p.capacity || entityData[entityId].capacity;
+                    entityData[entityId].lastUpdated = new Date().toISOString();
+                    entityData[entityId].error = null;
+                } catch (e) {
                     entityData[entityId].unpowered = true;
                     entityData[entityId].items = [];
                     entityData[entityId].lastUpdated = new Date().toISOString();
-                    mergeInventory();
-                    broadcastState();
                 }
+                mergeInventory();
+                broadcastState();
             }, 500);
         }
 
