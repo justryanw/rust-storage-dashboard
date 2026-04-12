@@ -7,6 +7,7 @@ function toggleGroupVisibility(name) {
   localStorage.setItem('hiddenGroups', JSON.stringify([..._hiddenGroups]));
   renderInventory();
   renderGroups();
+  renderStats();
 }
 
 function isGroupHidden(name) {
