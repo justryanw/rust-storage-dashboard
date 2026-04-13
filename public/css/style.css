@@ -359,6 +359,82 @@ textarea { min-height: 70px; resize: vertical; }
 
 
 
+.detail-section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.monitor-detail-body {
+  display: flex;
+  gap: 16px;
+}
+
+.monitor-detail-grid {
+  flex: 0 0 auto;
+  width: 280px;
+}
+
+.monitor-detail-summary {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  max-height: 340px;
+}
+
+@media (max-width: 600px) {
+  .monitor-detail-body {
+    flex-direction: column;
+  }
+  .monitor-detail-grid {
+    width: 100%;
+  }
+}
+
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.inv-grid-cell {
+  aspect-ratio: 1;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.inv-grid-cell--filled {
+  background: rgba(232, 98, 42, 0.08);
+  border-color: rgba(232, 98, 42, 0.2);
+}
+
+.inv-grid-cell img {
+  width: 70%;
+  height: 70%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.inv-grid-qty {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--text);
+  text-shadow: 0 0 3px var(--bg), 0 0 3px var(--bg);
+  line-height: 1;
+}
+
 .capacity-bar {
   height: 3px;
   background: var(--border);

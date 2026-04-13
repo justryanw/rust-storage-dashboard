@@ -231,6 +231,25 @@ function showMonitorModal(entityId, fromGroup = null) {
       <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
       <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
     </div>`).join('');
+  // Build inventory grid — one cell per slot
+  const items = m.items || [];
+  let gridHTML = '';
+  if (cap > 0 && !isRemoved) {
+    const cells = [];
+    for (let i = 0; i < cap; i++) {
+      const item = items[i];
+      if (item && item.itemId) {
+        const sn = getItemShortname(item.itemId);
+        const name = escHtml(getItemName(item.itemId));
+        const qty = item.quantity > 1 ? `<span class="inv-grid-qty">${fmt(item.quantity)}</span>` : '';
+        cells.push(`<div class="inv-grid-cell inv-grid-cell--filled" title="${name} ×${item.quantity.toLocaleString()}">${itemIconHTML(sn, 40)}${qty}</div>`);
+      } else {
+        cells.push('<div class="inv-grid-cell"></div>');
+      }
+    }
+    gridHTML = `<div class="inv-grid">${cells.join('')}</div>`;
+  }
+
   document.getElementById('monitorDetailContent').innerHTML = `
     ${fromGroup ? `<button class="modal-back-btn" onclick="closeMonitorModal();showGroupModal(this.dataset.group)" data-group="${escHtml(fromGroup)}">← ${escHtml(fromGroup)}</button>` : ''}
     <div style="margin-bottom:12px">
@@ -242,8 +261,17 @@ function showMonitorModal(entityId, fromGroup = null) {
       </div>
     </div>
     ${!m.error && !isUnpowered && cap ? `<div class="capacity-bar" style="margin-bottom:12px"><div class="capacity-fill" style="width:${pct}%"></div></div>` : ''}
-    <div class="detail-items">
-      ${isRemoved || isUnpowered ? `<div style="color:var(--text-muted);font-size:0.85rem">No data available</div>` : (itemsHTML || '<div style="color:var(--text-muted);font-size:0.85rem">Empty</div>')}
+    <div class="monitor-detail-body">
+      ${gridHTML ? `<div class="monitor-detail-grid">
+        <div class="detail-section-label">Inventory</div>
+        ${gridHTML}
+      </div>` : ''}
+      <div class="monitor-detail-summary">
+        <div class="detail-section-label">Summary</div>
+        <div class="detail-items">
+          ${isRemoved ? `<div style="color:var(--text-muted);font-size:0.85rem">No data available</div>` : (itemsHTML || '<div style="color:var(--text-muted);font-size:0.85rem">Empty</div>')}
+        </div>
+      </div>
     </div>`;
   document.getElementById('monitorDetailModal').classList.add('show');
 }

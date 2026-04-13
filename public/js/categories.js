@@ -41,13 +41,13 @@ const _defs = {
     'bone.fragments','charcoal','cloth','coal','crude.oil','diesel_barrel',
     'fat.animal','fertilizer','gunpowder','horsedung','hq.metal.ore','leather','lowgradefuel',
     'metal.fragments','metal.ore','metal.refined','nucleus','paper','plantfiber',
-    'rope','scrap','skull','skull.wolf','sticks','stones','sulfur','sulfur.ore',
-    'tarp','wood','explosives',
+    'scrap','skull','skull.wolf','sticks','stones','sulfur','sulfur.ore',
+    'wood','explosives',
   ],
 
   components: [
     'advancedblueprintfragment','basicblueprintfragment','bleach','blueprintbase',
-    'cctv.camera','ducttape','gears','glue',
+    'cctv.camera','ducttape','gears','glue','rope','tarp',
     'metalblade','metalpipe','metalspring','propanetank','riflebody','roadsigns',
     'semibody','sewingkit','sheetmetal','smgbody','targeting.computer','techparts',
   ],
