@@ -411,6 +411,96 @@ textarea { min-height: 70px; resize: vertical; }
 
 
 
+/* ── Compact monitor grid (All tab) ── */
+.compact-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px;
+}
+
+.compact-cell {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.compact-cell:hover { background: var(--surface2); border-color: var(--accent); }
+
+.compact-cell--fresh {
+  animation: compact-flash 1.5s ease-out;
+}
+@keyframes compact-flash {
+  0% { background: rgba(232, 98, 42, 0.15); border-color: rgba(232, 98, 42, 0.4); }
+  100% { background: var(--surface); border-color: var(--border); }
+}
+
+.compact-cell--timeout {
+  animation: compact-timeout 2s ease-out;
+}
+@keyframes compact-timeout {
+  0%, 30% { background: rgba(248, 113, 113, 0.15); border-color: rgba(248, 113, 113, 0.4); }
+  100% { background: var(--surface); border-color: var(--border); }
+}
+
+.compact-cell-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.compact-group {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 2px;
+}
+
+.compact-cell-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.compact-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.compact-dot--ok { background: var(--green); }
+.compact-dot--unpowered { background: var(--yellow); }
+.compact-dot--error { background: var(--red); }
+.compact-dot--pending { background: var(--text-muted); }
+
+.compact-cell--pending {
+  opacity: 0.4;
+}
+
+.compact-name {
+  flex: 1;
+  font-size: 0.82rem;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compact-slots {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.compact-time {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
 .detail-section-label {
   font-size: 0.75rem;
   font-weight: 700;
@@ -532,6 +622,8 @@ textarea { min-height: 70px; resize: vertical; }
   padding: 0;
 }
 .btn-icon:hover { background: #2a2f45; color: var(--text); border-color: var(--accent); }
+.btn-icon.refreshing .btn-icon-inner { display: inline-block; animation: spin 1s linear infinite; }
+.btn-icon:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-danger-icon:hover { border-color: var(--red); }
 
 .modal-toggles {
@@ -690,7 +782,23 @@ textarea { min-height: 70px; resize: vertical; }
   border-radius: 50%;
   background: var(--surface);
 }
-.refresh-btn span { position: relative; z-index: 1; line-height: 1; }
+.refresh-btn .refresh-ring {
+  position: absolute;
+  inset: 3px;
+  z-index: 2;
+  pointer-events: none;
+}
+.refresh-ring-fill {
+  transition: stroke-dashoffset 0.3s ease;
+}
+.refresh-btn .refresh-icon-text { position: relative; z-index: 1; line-height: 1; }
+.refresh-btn.refreshing .refresh-icon-text {
+  animation: spin 1s linear infinite;
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .refresh-btn:hover { opacity: 0.8; }
 .refresh-btn:active { opacity: 0.6; }
 .refresh-btn:disabled { opacity: 0.3; cursor: not-allowed; }

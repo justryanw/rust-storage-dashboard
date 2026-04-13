@@ -7,6 +7,37 @@ function refreshOpenModal() {
   else if (_activeModal === 'group') showGroupModal(_activeModalArg);
 }
 
+// ── Upkeep modal ─────────────────────────────────────────────────────────────
+function showUpkeepModal() {
+  const now = Math.floor(Date.now() / 1000);
+  const tcs = Object.values(state.monitors || {})
+    .filter(m => m.hasProtection && m.protectionExpiry > 0)
+    .map(m => ({ ...m, remaining: m.protectionExpiry - now }))
+    .sort((a, b) => a.remaining - b.remaining);
+
+  document.getElementById('upkeepModalSub').textContent =
+    `${tcs.length} tool cupboard${tcs.length !== 1 ? 's' : ''} with upkeep`;
+
+  document.getElementById('upkeepModalList').innerHTML = tcs.map(tc => {
+    const color = upkeepColor(tc.remaining);
+    const groupName = ((state.config || {}).entityGroups || {})[String(tc.entityId)] || null;
+    return `
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:var(--radius);cursor:pointer" onclick="closeUpkeepModal();showMonitorModal('${tc.entityId}')">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600;font-size:0.88rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(tc.label || tc.entityId)}</div>
+          ${groupName ? `<span class="monitor-group-tag" style="margin-top:2px">${escHtml(groupName)}</span>` : ''}
+        </div>
+        <span style="font-weight:700;color:${color};white-space:nowrap;font-size:0.95rem">${fmtDuration(tc.remaining)}</span>
+      </div>`;
+  }).join('');
+
+  document.getElementById('upkeepModal').classList.add('show');
+}
+
+function closeUpkeepModal() {
+  document.getElementById('upkeepModal').classList.remove('show');
+}
+
 // ── Config modal ──────────────────────────────────────────────────────────────
 function openConfigModal() {
   document.getElementById('configModal').classList.add('show');
@@ -240,6 +271,7 @@ function showMonitorModal(entityId, fromGroup = null) {
         </div>
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0">
+        <button class="btn btn-icon" id="modalRefreshBtn-${m.entityId}" onclick="refreshMonitor(event,'${m.entityId}')" title="Refresh monitor"><span class="btn-icon-inner">↻</span></button>
         <button class="btn btn-icon" onclick="editMonitor(event,'${m.entityId}')" title="Rename monitor">✏️</button>
         <button class="btn btn-icon btn-danger-icon" onclick="removeMonitor(event,'${m.entityId}');closeMonitorModal()" title="Delete monitor">🗑</button>
       </div>
@@ -321,6 +353,7 @@ function showGroupModal(groupName) {
 
   const _hidden = isGroupHidden(groupName);
   const _slotHidden = isGroupSlotHidden(groupName);
+  const _searchOnly = isGroupSearchOnly(groupName);
   document.getElementById('groupDetailContent').innerHTML = `
     <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:12px">
       <div>
@@ -339,6 +372,10 @@ function showGroupModal(groupName) {
       <label class="modal-toggle" onclick="toggleGroupSlotVisibility('${escHtml(groupName)}');showGroupModal('${escHtml(groupName)}')">
         <span class="modal-toggle-indicator${_slotHidden ? '' : ' active'}"></span>
         <span>Include in slot counts</span>
+      </label>
+      <label class="modal-toggle" onclick="toggleGroupSearchOnly('${escHtml(groupName)}');showGroupModal('${escHtml(groupName)}')">
+        <span class="modal-toggle-indicator${_searchOnly ? ' active' : ''}"></span>
+        <span>Show items only when searching</span>
       </label>
     </div>
     ${totalCap ? `<div class="capacity-bar" style="margin-bottom:16px"><div class="capacity-fill" style="width:${pct}%"></div></div>` : ''}

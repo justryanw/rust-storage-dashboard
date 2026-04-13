@@ -57,14 +57,47 @@ async function api(method, path, body) {
   return res.json();
 }
 
+let _refreshInterval = null;
+
 async function apiRefresh() {
   const btn = document.getElementById('refreshBtn');
+  const ring = document.getElementById('refreshRing');
+  const circumference = 94.25; // 2 * π * 15
   btn.disabled = true;
+  btn.classList.add('refreshing');
+
+  // Snapshot which monitors existed before refresh
+  const total = Object.keys(state.monitors || {}).length;
+  const beforeTimes = {};
+  for (const [id, m] of Object.entries(state.monitors || {})) {
+    beforeTimes[id] = m.lastUpdated || '';
+  }
+
+  function updateProgress() {
+    if (total === 0) return;
+    let updated = 0;
+    for (const [id, before] of Object.entries(beforeTimes)) {
+      const m = (state.monitors || {})[id];
+      if (m && m.lastUpdated && m.lastUpdated !== before) updated++;
+    }
+    const pct = Math.min(updated / total, 1);
+    ring.style.strokeDashoffset = circumference * (1 - pct);
+  }
+
+  _refreshInterval = setInterval(updateProgress, 200);
+
   try {
     await api('POST', '/api/refresh');
+    // Final update
+    ring.style.strokeDashoffset = '0';
+    await new Promise(r => setTimeout(r, 400));
   } catch (e) {
     console.error('Refresh failed:', e.message);
   } finally {
+    clearInterval(_refreshInterval);
+    _refreshInterval = null;
+    ring.style.strokeDashoffset = circumference;
+    btn.classList.remove('refreshing');
     btn.disabled = state.status !== 'connected';
   }
 }
@@ -127,6 +160,19 @@ async function importMonitors() {
     alert(`Imported ${added} new monitor${added !== 1 ? 's' : ''}.`);
   } catch (e) {
     alert('Failed to import: ' + e.message);
+  }
+}
+
+async function refreshMonitor(event, entityId) {
+  event.stopPropagation();
+  const btn = document.getElementById(`modalRefreshBtn-${entityId}`);
+  if (btn) { btn.disabled = true; btn.classList.add('refreshing'); }
+  try {
+    await api('POST', `/api/refresh/${entityId}`);
+  } catch (e) {
+    console.error('Monitor refresh failed:', e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('refreshing'); }
   }
 }
 

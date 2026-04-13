@@ -81,7 +81,7 @@ class TokenBucket {
         this._scheduled = false;
     }
 }
-const rateLimiter = new TokenBucket(25, 3);
+const rateLimiter = new TokenBucket(25, 2);
 let connectionError = null;
 let pairing = false;
 let pushClient = null;
@@ -251,17 +251,27 @@ async function pingServer() {
 async function fetchEntityInfo(entityId) {
     await rateLimiter.acquire(1); // get_entity_info costs 1
     return new Promise((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error('Timeout')), 5000);
-        rustplus.getEntityInfo(parseInt(entityId), (message) => {
+        let settled = false;
+        const timeout = setTimeout(() => {
+            if (!settled) { settled = true; reject(new Error('Timeout')); }
+        }, 5000);
+        try {
+            rustplus.getEntityInfo(parseInt(entityId), (message) => {
+                clearTimeout(timeout);
+                if (settled) return; // late response after timeout
+                settled = true;
+                if (message.response && message.response.entityInfo) {
+                    resolve(message.response.entityInfo);
+                } else if (message.response && message.response.error) {
+                    reject(new Error(message.response.error.error || 'Entity error'));
+                } else {
+                    reject(new Error('Unexpected response'));
+                }
+            });
+        } catch (e) {
             clearTimeout(timeout);
-            if (message.response && message.response.entityInfo) {
-                resolve(message.response.entityInfo);
-            } else if (message.response && message.response.error) {
-                reject(new Error(message.response.error.error || 'Entity error'));
-            } else {
-                reject(new Error('Unexpected response'));
-            }
-        });
+            if (!settled) { settled = true; reject(e); }
+        }
     });
 }
 
@@ -299,38 +309,43 @@ function applyEntityResult(entityId, info) {
         protectionExpiry: payload.protectionExpiry || 0,
         items: unpowered ? (entityData[id]?.items || []) : (payload.items || []),
         unpowered,
+        pending: false,
         lastUpdated: new Date().toISOString(),
         error: null,
     };
 }
 
 async function fetchAndApplyEntities(entityIds) {
-    const results = await Promise.allSettled(entityIds.map(id => fetchEntityInfo(id)));
-
     let failures = 0;
     const rateLimited = [];
 
-    results.forEach((result, i) => {
-        const entityId = entityIds[i];
+    for (const entityId of entityIds) {
         const id = String(entityId);
-        if (result.status === 'fulfilled') {
-            applyEntityResult(entityId, result.value);
-        } else {
-            const msg = result.reason.message;
+        try {
+            const info = await fetchEntityInfo(entityId);
+            applyEntityResult(entityId, info);
+            mergeInventory();
+            broadcastState();
+        } catch (e) {
+            const msg = e.message;
             failures++;
-            if (msg.includes('rate_limit')) {
+            if (msg === 'Timeout') {
+                console.warn(`Entity ${entityId} timed out — pausing 3s`);
+                entityData[id] = { entityId: id, label: config.entityLabels?.[id] || `Monitor ${entityId}`, items: entityData[id]?.items || [], error: 'timeout', lastUpdated: entityData[id]?.lastUpdated || new Date().toISOString() };
+                broadcastState();
+                await new Promise(r => setTimeout(r, 3000));
+            } else if (msg.includes('rate_limit')) {
                 console.warn(`Entity ${entityId} rate limited — will retry`);
                 rateLimited.push(entityId);
-                // Leave existing entityData in place if available; otherwise stub
                 if (!entityData[id]) {
                     entityData[id] = { entityId: id, label: config.entityLabels?.[id] || `Monitor ${entityId}`, items: [], error: 'rate_limit', lastUpdated: new Date().toISOString() };
                 }
             } else {
                 console.error(`Entity ${entityId} error:`, msg);
-                entityData[id] = { entityId: id, label: config.entityLabels?.[id] || `Monitor ${entityId}`, items: [], error: msg, lastUpdated: new Date().toISOString() };
+                entityData[id] = { entityId: id, label: config.entityLabels?.[id] || `Monitor ${entityId}`, items: entityData[id]?.items || [], error: msg, lastUpdated: new Date().toISOString() };
             }
         }
-    });
+    }
 
     // If every entity failed (not just rate limited), check if connection is alive
     if (failures === entityIds.length && rateLimited.length === 0) {
@@ -341,7 +356,7 @@ async function fetchAndApplyEntities(entityIds) {
     mergeInventory();
     broadcastState();
 
-    // Retry rate-limited entities — they'll be paced by the token bucket
+    // Retry rate-limited entities
     if (rateLimited.length > 0) {
         await fetchAndApplyEntities(rateLimited);
     }
@@ -359,6 +374,22 @@ async function connectToServer(cfg) {
     connectionError = null;
     connectionStatus = 'connecting';
     rateLimiter.reset(); // fresh bucket on each connection attempt
+
+    // Seed stubs for all configured entities so the UI shows them immediately
+    for (const entityId of (cfg.entityIds || [])) {
+        const id = String(entityId);
+        entityData[id] = {
+            entityId: id,
+            label: cfg.entityLabels?.[id] || `Monitor ${entityId}`,
+            items: [],
+            capacity: 0,
+            unpowered: false,
+            pending: true,
+            error: null,
+            lastUpdated: null,
+        };
+    }
+
     broadcastState();
 
     rustplus = new RustPlus(cfg.serverIp, parseInt(cfg.appPort), cfg.steamId, parseInt(cfg.playerToken));
@@ -573,6 +604,23 @@ app.post('/api/monitor/confirm', async (req, res) => {
 
     broadcastState();
     res.json({ success: true });
+});
+
+app.post('/api/refresh/:entityId', async (req, res) => {
+    if (connectionStatus !== 'connected') {
+        return res.status(400).json({ error: 'Not connected' });
+    }
+    const id = req.params.entityId;
+    try {
+        const info = await fetchEntityInfo(id);
+        applyEntityResult(id, info);
+        mergeInventory();
+        broadcastState();
+        res.json({ success: true });
+    } catch (e) {
+        console.error(`/api/refresh/${id} error:`, e.message);
+        res.status(500).json({ error: e.message });
+    }
 });
 
 app.post('/api/refresh', async (_, res) => {

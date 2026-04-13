@@ -14,7 +14,13 @@
     <div class="status-dot"></div>
     <span id="statusText">Disconnected</span>
   </div>
-  <button class="refresh-btn" id="refreshBtn" disabled onclick="apiRefresh()" title="Refresh"><span>↻</span></button>
+  <button class="refresh-btn" id="refreshBtn" disabled onclick="apiRefresh()" title="Refresh">
+    <svg class="refresh-ring" viewBox="0 0 36 36" width="28" height="28">
+      <circle class="refresh-ring-bg" cx="18" cy="18" r="15" fill="none" stroke="var(--border)" stroke-width="3" />
+      <circle class="refresh-ring-fill" id="refreshRing" cx="18" cy="18" r="15" fill="none" stroke="var(--accent)" stroke-width="3" stroke-dasharray="94.25" stroke-dashoffset="94.25" stroke-linecap="round" transform="rotate(-90 18 18)" />
+    </svg>
+    <span class="refresh-icon-text">↻</span>
+  </button>
   <button class="refresh-btn" onclick="openConfigModal()" title="Settings"><span>⚙</span></button>
 </header>
 
@@ -53,15 +59,15 @@
         <div id="statSlotsBar" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 0.4s"></div>
       </div>
     </div>
-    <div class="stat-card" id="statUpkeepCard" style="display:none">
+    <div class="stat-card" id="statUpkeepCard" style="display:none;cursor:pointer" onclick="showUpkeepModal()" title="View all tool cupboards">
       <div class="stat-label">Min Upkeep</div>
       <div class="stat-value" id="statUpkeepTime" style="font-size:1.1rem">—</div>
       <div class="stat-sub" id="statUpkeepSub"></div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Last Update</div>
-      <div class="stat-value" id="statTime" style="font-size:1rem">—</div>
-      <div class="stat-sub" id="statDate"></div>
+      <div class="stat-value monitor-updated" id="statTimeAgo" style="font-size:1rem" data-updated="">—</div>
+      <div class="stat-sub" id="statTimestamp"></div>
     </div>
   </div>
 
@@ -70,6 +76,7 @@
     <div class="tab-buttons">
       <button class="tab-btn active" id="tabItems" onclick="switchTab('items')">Items</button>
       <button class="tab-btn" id="tabMonitors" onclick="switchTab('monitors')">Monitors</button>
+      <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Activity</button>
     </div>
     <div class="tab-controls">
       <div class="search-wrap">
@@ -110,6 +117,11 @@
       <h2>Monitors</h2>
       <div class="monitors-grid" id="monitorsGrid"></div>
     </div>
+  </div>
+
+  <!-- All monitors tab -->
+  <div id="tabContentAll" style="display:none">
+    <div id="allMonitorsList"></div>
   </div>
 
 </div>
@@ -174,8 +186,20 @@
 </div>
 
 
+<!-- Upkeep modal -->
+<div class="modal-overlay" id="upkeepModal" onclick="if(event.target===this)closeUpkeepModal()">
+  <div class="modal" style="width:420px">
+    <h2>Tool Cupboard Upkeep</h2>
+    <p id="upkeepModalSub"></p>
+    <div id="upkeepModalList" style="margin-top:8px;display:flex;flex-direction:column;gap:4px;max-height:440px;overflow-y:auto"></div>
+    <div class="modal-actions" style="margin-top:16px">
+      <button class="btn btn-ghost" onclick="closeUpkeepModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Pair name modal -->
-<div class="modal-overlay" id="pairModal" onclick="if(event.target===this)dismissPairModal()">
+<div class="modal-overlay" id="pairModal" style="z-index:220" onclick="if(event.target===this)dismissPairModal()">
   <div class="modal">
     <h2>Name this Monitor</h2>
     <p id="pairModalSub">Entity ID: —</p>

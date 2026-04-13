@@ -27,8 +27,23 @@ function isGroupSlotHidden(name) {
   return _slotHiddenGroups.has(name);
 }
 
-function getVisibleInventory() {
-  if (_hiddenGroups.size === 0) return state.inventory;
+const _searchOnlyGroups = new Set(JSON.parse(localStorage.getItem('searchOnlyGroups') || '[]'));
+
+function toggleGroupSearchOnly(name) {
+  if (_searchOnlyGroups.has(name)) _searchOnlyGroups.delete(name);
+  else _searchOnlyGroups.add(name);
+  localStorage.setItem('searchOnlyGroups', JSON.stringify([..._searchOnlyGroups]));
+  renderInventory();
+  renderGroups();
+  renderMonitors();
+  renderAllMonitors();
+}
+
+function isGroupSearchOnly(name) {
+  return _searchOnlyGroups.has(name);
+}
+
+function _filterInventory(excludeFn) {
   const entityGroups = (state.config || {}).entityGroups || {};
   const monitors = state.monitors || {};
   const result = {};
@@ -37,7 +52,7 @@ function getVisibleInventory() {
     const visibleSources = [];
     for (const sourceId of (item.sources || [])) {
       const groupName = entityGroups[String(sourceId)];
-      if (groupName && _hiddenGroups.has(groupName)) continue;
+      if (groupName && excludeFn(groupName)) continue;
       const m = monitors[sourceId];
       const qty = (m?.items || []).filter(i => i.itemId === item.itemId).reduce((s, i) => s + i.quantity, 0);
       visibleQty += qty;
@@ -46,6 +61,18 @@ function getVisibleInventory() {
     if (visibleQty > 0) result[key] = { ...item, quantity: visibleQty, sources: visibleSources };
   }
   return result;
+}
+
+function getVisibleInventory() {
+  if (_hiddenGroups.size === 0 && _searchOnlyGroups.size === 0) return state.inventory;
+  // Exclude groups hidden from item list AND search-only groups
+  return _filterInventory(g => _hiddenGroups.has(g) || _searchOnlyGroups.has(g));
+}
+
+function getSearchableInventory() {
+  if (_hiddenGroups.size === 0) return state.inventory;
+  // Exclude groups hidden from item list, but INCLUDE search-only groups
+  return _filterInventory(g => _hiddenGroups.has(g) && !_searchOnlyGroups.has(g));
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -182,8 +209,11 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
   const pct = cap ? Math.round((usedSlots / cap) * 100) : 0;
   const isRemoved = m.error === 'not_found';
   const isUnpowered = m.unpowered;
+  const isPending = m.pending;
   const groupName = ((state.config || {}).entityGroups || {})[String(m.entityId)] || null;
-  const statusBadge = isRemoved
+  const statusBadge = isPending
+    ? `<span style="font-size:0.72rem;background:var(--surface2);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 6px">Pending…</span>`
+    : isRemoved
     ? `<span style="font-size:0.72rem;background:#3b0f0f;color:var(--red);border:1px solid #7f1d1d;border-radius:4px;padding:1px 6px">No Response</span>`
     : isUnpowered
     ? `<span style="font-size:0.72rem;background:#2a1f00;color:var(--yellow);border:1px solid #78580a;border-radius:4px;padding:1px 6px">Unpowered</span>`
@@ -206,7 +236,7 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
         <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
       </div>`).join('') : '';
   return `
-    <div class="monitor-card" id="${cardId}" ${isRemoved ? 'style="opacity:0.5"' : ''} onclick="showMonitorModal('${m.entityId}')">
+    <div class="monitor-card" id="${cardId}" ${isRemoved || isPending ? 'style="opacity:0.5"' : ''} onclick="showMonitorModal('${m.entityId}')">
       <div class="monitor-header">
         <div class="monitor-header-top">
           <span class="monitor-name">${escHtml(m.label || m.entityId)}</span>
@@ -286,6 +316,7 @@ function render() {
   renderInventory();
   renderGroups();
   renderMonitors();
+  renderAllMonitors();
   refreshOpenModal();
   checkNewUnlabeledMonitors();
 }
@@ -363,11 +394,17 @@ function renderStats() {
   document.getElementById('statSlotsSub').textContent = totalSlots > 0 ? `${usedSlots.toLocaleString()} used of ${totalSlots.toLocaleString()} total` : '';
   document.getElementById('statSlotsBar').style.width = `${pct}%`;
 
-  if (state.lastUpdate) {
-    const d = new Date(state.lastUpdate);
-    document.getElementById('statTime').textContent = d.toLocaleTimeString();
-    document.getElementById('statDate').textContent = d.toLocaleDateString();
-    document.getElementById('lastUpdateLabel').textContent = `Updated ${d.toLocaleTimeString()}`;
+  const monitorTimes = Object.values(state.monitors || {})
+    .map(m => m.lastUpdated)
+    .filter(Boolean)
+    .sort();
+  const latestMonitorUpdate = monitorTimes.length > 0 ? monitorTimes[monitorTimes.length - 1] : null;
+  if (latestMonitorUpdate) {
+    const el = document.getElementById('statTimeAgo');
+    el.dataset.updated = latestMonitorUpdate;
+    el.textContent = timeAgo(latestMonitorUpdate);
+    document.getElementById('statTimestamp').textContent = new Date(latestMonitorUpdate).toLocaleTimeString();
+    document.getElementById('lastUpdateLabel').textContent = `Updated ${timeAgo(latestMonitorUpdate)}`;
   }
 
   // Upkeep card — find the earliest protectionExpiry across all monitors
@@ -391,9 +428,11 @@ function renderStats() {
 function getSortedItems() {
   const query = document.getElementById('searchInput').value.toLowerCase();
   const sort = document.getElementById('sortSelect').value;
-  let items = Object.values(getVisibleInventory());
+  let items = Object.values(query ? getSearchableInventory() : getVisibleInventory());
 
-  if (query) items = items.filter(i => i.name.toLowerCase().includes(query) || String(i.itemId).includes(query));
+  if (query) {
+    items = items.filter(i => i.name.toLowerCase().includes(query) || String(i.itemId).includes(query));
+  }
 
   items.sort((a, b) => {
     if (sort === 'qty-desc') return b.quantity - a.quantity;
@@ -604,18 +643,22 @@ function onSearch() {
   renderInventory();
   renderGroups();
   renderMonitors();
+  renderAllMonitors();
 }
 
 function filteredMonitors(monitors) {
   const query = document.getElementById('searchInput').value.toLowerCase().trim();
   if (!query) return monitors;
-  return monitors.filter(m =>
-    (m.label || '').toLowerCase().includes(query) ||
-    String(m.entityId).includes(query) ||
-    (m.items || []).some(i =>
-      getItemName(i.itemId).toLowerCase().includes(query) || String(i.itemId).includes(query)
-    )
-  );
+  const entityGroups = (state.config || {}).entityGroups || {};
+  return monitors.filter(m => {
+    const groupName = entityGroups[m.entityId];
+    if (groupName && isGroupSearchOnly(groupName)) return false;
+    return (m.label || '').toLowerCase().includes(query) ||
+      String(m.entityId).includes(query) ||
+      (m.items || []).some(i =>
+        getItemName(i.itemId).toLowerCase().includes(query) || String(i.itemId).includes(query)
+      );
+  });
 }
 
 function renderMonitors() {
@@ -648,13 +691,86 @@ function renderMonitors() {
   }));
 }
 
+// ── All monitors compact view ─────────────────────────────────────────────────
+let _prevUpdateTimes = {};
+
+function renderAllMonitors() {
+  const container = document.getElementById('allMonitorsList');
+  if (state.status !== 'connected') { container.innerHTML = ''; return; }
+
+  const entityGroups = (state.config || {}).entityGroups || {};
+  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+  let monitors = Object.values(state.monitors || {});
+
+  if (query) {
+    monitors = monitors.filter(m =>
+      (m.label || '').toLowerCase().includes(query) ||
+      String(m.entityId).includes(query) ||
+      (entityGroups[m.entityId] || '').toLowerCase().includes(query)
+    );
+  }
+
+  // Sort by group name (ungrouped last), then label
+  monitors.sort((a, b) => {
+    const ga = entityGroups[a.entityId] || '\uffff';
+    const gb = entityGroups[b.entityId] || '\uffff';
+    if (ga !== gb) return ga.localeCompare(gb);
+    return (a.label || '').localeCompare(b.label || '');
+  });
+
+  // Detect freshly updated monitors
+  const freshIds = new Set();
+  for (const m of monitors) {
+    const prev = _prevUpdateTimes[m.entityId];
+    if (prev && m.lastUpdated && m.lastUpdated !== prev) {
+      freshIds.add(m.entityId);
+    }
+    _prevUpdateTimes[m.entityId] = m.lastUpdated;
+  }
+
+  let html = '<div class="compact-grid">';
+  for (const m of monitors) {
+    const usedSlots = (m.items || []).length;
+    const cap = m.capacity || 0;
+    const isUnpowered = m.unpowered;
+    const isPending = m.pending;
+    const isError = m.error === 'not_found';
+    const isTimeout = m.error === 'timeout';
+    const statusCls = isPending ? 'pending' : isError || isTimeout ? 'error' : isUnpowered ? 'unpowered' : 'ok';
+    const freshCls = freshIds.has(m.entityId) ? ' compact-cell--fresh' : '';
+    const timeoutCls = isTimeout ? ' compact-cell--timeout' : '';
+    const pendingCls = isPending ? ' compact-cell--pending' : '';
+    html += `
+      <div class="compact-cell compact-cell--${statusCls}${freshCls}${timeoutCls}${pendingCls}" onclick="showMonitorModal('${m.entityId}')">
+        <div class="compact-cell-top">
+          <span class="compact-dot compact-dot--${statusCls}"></span>
+          <span class="compact-name">${escHtml(m.label || m.entityId)}</span>
+        </div>
+        ${entityGroups[m.entityId] ? `<div class="compact-group">${escHtml(entityGroups[m.entityId])}</div>` : ''}
+        <div class="compact-cell-bottom">
+          <span class="compact-slots">${usedSlots}/${cap}</span>
+          <span class="compact-time monitor-updated" data-updated="${m.lastUpdated || ''}">${m.lastUpdated ? timeAgo(m.lastUpdated) : '—'}</span>
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+
+  if (monitors.length === 0) {
+    html = '<div style="color:var(--text-muted);text-align:center;padding:24px">No monitors found</div>';
+  }
+
+  container.innerHTML = html;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
   document.getElementById('tabItems').classList.toggle('active', tab === 'items');
   document.getElementById('tabMonitors').classList.toggle('active', tab === 'monitors');
+  document.getElementById('tabAll').classList.toggle('active', tab === 'all');
   document.getElementById('tabContentItems').style.display = tab === 'items' ? '' : 'none';
   document.getElementById('tabContentMonitors').style.display = tab === 'monitors' ? '' : 'none';
+  document.getElementById('tabContentAll').style.display = tab === 'all' ? '' : 'none';
   document.getElementById('sortSelect').style.display = tab === 'items' ? '' : 'none';
   document.getElementById('viewToggle').style.display = tab === 'items' ? '' : 'none';
   document.getElementById('searchInput').placeholder = tab === 'items' ? 'Search items…' : 'Search monitors…';
