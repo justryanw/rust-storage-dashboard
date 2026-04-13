@@ -87,23 +87,32 @@ async function saveConfig() {
 
 function exportEntityIds() {
   const ids = (state.config || {}).entityIds || [];
-  navigator.clipboard.writeText(JSON.stringify(ids)).then(() => {
-    alert(`Copied ${ids.length} entity ID${ids.length !== 1 ? 's' : ''} to clipboard.`);
-  });
+  const text = JSON.stringify(ids);
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
+  alert(`Copied ${ids.length} entity ID${ids.length !== 1 ? 's' : ''} to clipboard.`);
 }
 
 async function importEntityIds() {
+  const text = prompt('Paste entity IDs (JSON array):');
+  if (!text) return;
   try {
-    const text = await navigator.clipboard.readText();
     const ids = JSON.parse(text);
     if (!Array.isArray(ids) || !ids.every(id => Number.isInteger(Number(id)))) {
-      alert('Clipboard must contain a JSON array of entity IDs.');
+      alert('Must be a JSON array of entity IDs.');
       return;
     }
     const existing = (state.config || {}).entityIds || [];
     const merged = [...new Set([...existing.map(String), ...ids.map(String)])];
+    const added = merged.length - existing.length;
     await api('POST', '/api/config', { entityIds: merged.map(Number) });
-    alert(`Imported ${merged.length - existing.length} new entity ID${merged.length - existing.length !== 1 ? 's' : ''}.`);
+    alert(`Imported ${added} new entity ID${added !== 1 ? 's' : ''}.`);
   } catch (e) {
     alert('Failed to import: ' + e.message);
   }
