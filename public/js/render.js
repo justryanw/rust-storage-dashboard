@@ -42,6 +42,25 @@ function fmt(n) {
   return n.toLocaleString();
 }
 
+function timeAgo(isoString) {
+  if (!isoString) return '';
+  const seconds = Math.floor((Date.now() - new Date(isoString).getTime()) / 1000);
+  if (seconds < 1) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const m = Math.floor(seconds / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function refreshTimestamps() {
+  document.querySelectorAll('.monitor-updated[data-updated]').forEach(el => {
+    el.textContent = timeAgo(el.dataset.updated);
+  });
+}
+
 function fmtDuration(seconds) {
   if (seconds <= 0) return 'Expired';
   const d = Math.floor(seconds / 86400);
@@ -184,6 +203,7 @@ function monitorCardHTML(m, query = '', cardId = `mc-${m.entityId}`) {
         <div class="monitor-header-meta">
           ${groupName ? `<span class="monitor-group-tag">${escHtml(groupName)}</span>` : ''}
           ${statusBadge}
+          ${m.lastUpdated ? `<span class="monitor-updated" data-updated="${m.lastUpdated}">${timeAgo(m.lastUpdated)}</span>` : ''}
         </div>
       </div>
       ${query && !m.error && !isUnpowered && cap ? `<div class="capacity-bar-wrap"><div class="capacity-bar"><div class="capacity-fill" style="width:${pct}%"></div></div></div>` : ''}

@@ -85,6 +85,30 @@ async function saveConfig() {
   if (res.success) closeConfigModal();
 }
 
+function exportEntityIds() {
+  const ids = (state.config || {}).entityIds || [];
+  navigator.clipboard.writeText(JSON.stringify(ids)).then(() => {
+    alert(`Copied ${ids.length} entity ID${ids.length !== 1 ? 's' : ''} to clipboard.`);
+  });
+}
+
+async function importEntityIds() {
+  try {
+    const text = await navigator.clipboard.readText();
+    const ids = JSON.parse(text);
+    if (!Array.isArray(ids) || !ids.every(id => Number.isInteger(Number(id)))) {
+      alert('Clipboard must contain a JSON array of entity IDs.');
+      return;
+    }
+    const existing = (state.config || {}).entityIds || [];
+    const merged = [...new Set([...existing.map(String), ...ids.map(String)])];
+    await api('POST', '/api/config', { entityIds: merged.map(Number) });
+    alert(`Imported ${merged.length - existing.length} new entity ID${merged.length - existing.length !== 1 ? 's' : ''}.`);
+  } catch (e) {
+    alert('Failed to import: ' + e.message);
+  }
+}
+
 async function loadConfig() {
   try {
     const [cfg, initialState] = await Promise.all([

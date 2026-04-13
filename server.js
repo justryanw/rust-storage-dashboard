@@ -297,7 +297,7 @@ function applyEntityResult(entityId, info) {
         capacity: payload.capacity || 0,
         hasProtection: payload.hasProtection || false,
         protectionExpiry: payload.protectionExpiry || 0,
-        items: unpowered ? [] : (payload.items || []),
+        items: unpowered ? (entityData[id]?.items || []) : (payload.items || []),
         unpowered,
         lastUpdated: new Date().toISOString(),
         error: null,
@@ -384,22 +384,10 @@ async function connectToServer(cfg) {
         // with no value:false, fetch to confirm actual state.
         if (payload.value === true && entityData[entityId] !== undefined) {
             clearTimeout(unpowerTimers[entityId]);
-            unpowerTimers[entityId] = setTimeout(async () => {
+            unpowerTimers[entityId] = setTimeout(() => {
                 if (!entityData[entityId]) return;
-                try {
-                    const info = await fetchEntityInfo(entityId);
-                    const p = info.payload || {};
-                    const unpowered = !p.capacity;
-                    entityData[entityId].unpowered = unpowered;
-                    entityData[entityId].items = unpowered ? [] : (p.items || []);
-                    entityData[entityId].capacity = p.capacity || entityData[entityId].capacity;
-                    entityData[entityId].lastUpdated = new Date().toISOString();
-                    entityData[entityId].error = null;
-                } catch (e) {
-                    entityData[entityId].unpowered = true;
-                    entityData[entityId].items = [];
-                    entityData[entityId].lastUpdated = new Date().toISOString();
-                }
+                entityData[entityId].unpowered = true;
+                entityData[entityId].lastUpdated = new Date().toISOString();
                 mergeInventory();
                 broadcastState();
             }, 500);
@@ -566,7 +554,7 @@ app.post('/api/monitor/confirm', async (req, res) => {
                 type: info.type,
                 capacity: p.capacity || 0,
                 hasProtection: p.hasProtection || false,
-                items: unpowered ? [] : (p.items || []),
+                items: unpowered ? (entityData[id]?.items || []) : (p.items || []),
                 unpowered,
                 lastUpdated: new Date().toISOString(),
                 error: null,

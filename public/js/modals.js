@@ -238,6 +238,7 @@ function showMonitorModal(entityId, fromGroup = null) {
       <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
         ${groupName ? `<span class="monitor-group-tag">${escHtml(groupName)}</span>` : ''}
         ${statusBadge}
+        ${m.lastUpdated ? `<span class="monitor-updated" data-updated="${m.lastUpdated}">${timeAgo(m.lastUpdated)}</span>` : ''}
       </div>
     </div>
     ${!m.error && !isUnpowered && cap ? `<div class="capacity-bar" style="margin-bottom:12px"><div class="capacity-fill" style="width:${pct}%"></div></div>` : ''}

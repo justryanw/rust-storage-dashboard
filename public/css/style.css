@@ -351,6 +351,14 @@ textarea { min-height: 70px; resize: vertical; }
 
 .monitor-error { color: var(--red); font-size: 0.75rem; }
 
+.monitor-updated {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+
+
 .capacity-bar {
   height: 3px;
   background: var(--border);
