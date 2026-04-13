@@ -16,52 +16,6 @@ function closeConfigModal() {
   document.getElementById('configModal').classList.remove('show');
 }
 
-// ── Slots usage modal ─────────────────────────────────────────────────────────
-function showSlotsModal() {
-  // Count stacks (slots) per itemId across visible monitors
-  const entityGroups = (state.config || {}).entityGroups || {};
-  const visibleMonitors = Object.values(state.monitors || {}).filter(m => {
-    if (m.error || m.unpowered) return false;
-    const groupName = entityGroups[String(m.entityId)];
-    if (groupName && (isGroupHidden(groupName) || isGroupSlotHidden(groupName))) return false;
-    return true;
-  });
-  const slotCounts = {};
-  for (const m of visibleMonitors) {
-    for (const item of (m.items || [])) {
-      const key = String(item.itemId);
-      slotCounts[key] = (slotCounts[key] || 0) + 1;
-    }
-  }
-
-  const items = Object.values(state.inventory || {})
-    .map(item => ({ ...item, slots: slotCounts[String(item.itemId)] || 0 }))
-    .filter(item => item.slots > 0)
-    .sort((a, b) => b.slots - a.slots || b.quantity - a.quantity);
-
-  const totalUsed = items.reduce((s, i) => s + i.slots, 0);
-  const totalSlots = visibleMonitors.reduce((s, m) => s + (m.capacity || 0), 0);
-
-  document.getElementById('slotsModalSub').textContent =
-    `${totalUsed} of ${totalSlots} slots used across ${items.length} item type${items.length !== 1 ? 's' : ''}`;
-
-  document.getElementById('slotsModalList').innerHTML = items.map(item => {
-    const pct = totalUsed > 0 ? (item.slots / totalUsed) * 100 : 0;
-    return `
-      <div style="display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--surface2);border-radius:var(--radius)">
-        ${itemIconHTML(item.shortname, 24)}
-        <span style="flex:1;font-size:0.85rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(item.name)}</span>
-        <span style="font-size:0.78rem;color:var(--text-muted);white-space:nowrap">${item.quantity.toLocaleString()} qty</span>
-        <span style="font-weight:700;color:var(--accent2);white-space:nowrap;min-width:52px;text-align:right">${item.slots} slot${item.slots !== 1 ? 's' : ''}</span>
-      </div>`;
-  }).join('');
-
-  document.getElementById('slotsModal').classList.add('show');
-}
-
-function closeSlotsModal() {
-  document.getElementById('slotsModal').classList.remove('show');
-}
 
 // ── Item detail modal ─────────────────────────────────────────────────────────
 function showItemModal(itemId) {
@@ -73,40 +27,56 @@ function showItemModal(itemId) {
   const groupBuckets = {};
   const ungrouped = [];
 
+  let totalSlots = 0;
   for (const id of (item.sources || [])) {
     const m = monitors[String(id)];
-    const qty = (m?.items || []).filter(i => i.itemId === item.itemId).reduce((s, i) => s + i.quantity, 0);
+    const matching = (m?.items || []).filter(i => i.itemId === item.itemId);
+    const qty = matching.reduce((s, i) => s + i.quantity, 0);
+    const slots = matching.length;
+    totalSlots += slots;
     const groupName = entityGroups[String(id)];
     if (groupName) {
       if (!groupBuckets[groupName]) groupBuckets[groupName] = [];
-      groupBuckets[groupName].push({ id: String(id), label: m?.label || `#${id}`, qty });
+      groupBuckets[groupName].push({ id: String(id), label: m?.label || `#${id}`, qty, slots });
     } else {
-      ungrouped.push({ id: String(id), label: m?.label || `#${id}`, qty });
+      ungrouped.push({ id: String(id), label: m?.label || `#${id}`, qty, slots });
     }
   }
+
+  const maxStack = getMaxStack(item.shortname);
+  const minSlots = maxStack ? Math.ceil(item.quantity / maxStack) : null;
+  const efficiency = (maxStack && totalSlots > 0) ? Math.round((minSlots / totalSlots) * 100) : null;
+  const effColor = efficiency === null ? 'var(--text-muted)'
+    : efficiency >= 80 ? 'var(--green)'
+    : efficiency >= 50 ? 'var(--yellow)'
+    : 'var(--red)';
 
   const rows = [];
   for (const [groupName, members] of Object.entries(groupBuckets)) {
     const groupTotal = members.reduce((s, m) => s + m.qty, 0);
+    const groupSlots = members.reduce((s, m) => s + m.slots, 0);
     rows.push(`
       <div class="item-modal-row item-modal-row-group" data-group="${escHtml(groupName)}" onclick="closeItemModal();showGroupModal(this.dataset.group)">
-        <span style="font-size:0.88rem;font-weight:700">${escHtml(groupName)}</span>
-        <span style="font-weight:700;color:var(--accent2)">${groupTotal.toLocaleString()}</span>
+        <span style="font-size:0.88rem;font-weight:700;flex:1">${escHtml(groupName)}</span>
+        <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap">${groupSlots} slot${groupSlots !== 1 ? 's' : ''}</span>
+        <span style="font-weight:700;color:var(--accent2);min-width:60px;text-align:right">${groupTotal.toLocaleString()}</span>
       </div>`);
     for (const mem of members.sort((a, b) => b.qty - a.qty)) {
       rows.push(`
         <div style="margin-left:16px">
         <div class="item-modal-row item-modal-row-member" data-id="${mem.id}" onclick="closeItemModal();showMonitorModal(this.dataset.id)">
-          <span style="font-size:0.82rem;color:var(--text-muted)">${escHtml(mem.label)}</span>
-          <span style="font-size:0.82rem;color:var(--accent2)">${mem.qty.toLocaleString()}</span>
+          <span style="font-size:0.82rem;color:var(--text-muted);flex:1">${escHtml(mem.label)}</span>
+          <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap">${mem.slots} slot${mem.slots !== 1 ? 's' : ''}</span>
+          <span style="font-size:0.82rem;color:var(--accent2);min-width:60px;text-align:right">${mem.qty.toLocaleString()}</span>
         </div></div>`);
     }
   }
   for (const s of ungrouped.sort((a, b) => b.qty - a.qty)) {
     rows.push(`
       <div class="item-modal-row item-modal-row-ungrouped" data-id="${s.id}" onclick="closeItemModal();showMonitorModal(this.dataset.id)">
-        <span style="font-size:0.88rem">${escHtml(s.label)}</span>
-        <span style="font-weight:700;color:var(--accent2)">${s.qty.toLocaleString()}</span>
+        <span style="font-size:0.88rem;flex:1">${escHtml(s.label)}</span>
+        <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap">${s.slots} slot${s.slots !== 1 ? 's' : ''}</span>
+        <span style="font-weight:700;color:var(--accent2);min-width:60px;text-align:right">${s.qty.toLocaleString()}</span>
       </div>`);
   }
 
@@ -115,7 +85,14 @@ function showItemModal(itemId) {
   icon.src = item.shortname ? `https://wiki.rustclash.com/img/items180/${escHtml(item.shortname)}.png` : '';
   icon.style.display = item.shortname ? '' : 'none';
   document.getElementById('itemModalName').textContent = item.name;
-  document.getElementById('itemModalTotal').textContent = `${item.quantity.toLocaleString()} total across ${locationCount} location${locationCount !== 1 ? 's' : ''}`;
+
+  const effBadge = efficiency !== null
+    ? `<span style="font-weight:700;color:${effColor};font-size:0.85rem">${efficiency}% efficient</span>`
+    : '';
+  const slotsInfo = `${totalSlots} slot${totalSlots !== 1 ? 's' : ''}${maxStack ? ` · ${minSlots} min needed` : ''}`;
+  document.getElementById('itemModalTotal').innerHTML =
+    `${item.quantity.toLocaleString()} total across ${locationCount} location${locationCount !== 1 ? 's' : ''}`
+    + `<br><span style="font-size:0.78rem;color:var(--text-muted)">${slotsInfo}</span> ${effBadge}`;
   document.getElementById('itemModalList').innerHTML = rows.join('');
   document.getElementById('itemModal').classList.add('show');
 }

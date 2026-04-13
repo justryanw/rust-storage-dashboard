@@ -121,58 +121,58 @@ function itemIconHTML(shortname, size = 36) {
   return `<img class="item-icon" src="https://wiki.rustclash.com/img/items180/${escHtml(shortname)}.png" width="${size}" height="${size}" alt="" loading="lazy" onerror="this.style.display='none'" />`;
 }
 
-function itemSources(item) {
-  const entityGroups = (state.config || {}).entityGroups || {};
+function itemSlotInfo(item) {
   const monitors = state.monitors || {};
-  const groupTotals = {};
-  const ungrouped = [];
+  let slots = 0;
   for (const id of (item.sources || [])) {
-    const m = monitors[id];
-    const qty = (m?.items || []).filter(i => i.itemId === item.itemId).reduce((s, i) => s + i.quantity, 0);
-    const groupName = entityGroups[String(id)];
-    if (groupName) {
-      groupTotals[groupName] = (groupTotals[groupName] || 0) + qty;
-    } else {
-      ungrouped.push({ id, label: m?.label || `#${id}`, qty, isGroup: false });
-    }
+    const m = monitors[String(id)];
+    if (m) slots += (m.items || []).filter(i => i.itemId === item.itemId).length;
   }
-  const grouped = Object.entries(groupTotals).map(([name, qty]) => ({ id: null, label: name, qty, isGroup: true }));
-  return [...grouped, ...ungrouped].sort((a, b) => b.qty - a.qty);
-}
-
-function sourceListHTML(sources, max) {
-  const shown = sources.slice(0, max);
-  const rest = sources.length - max;
-  return `<div class="source-list">
-    ${shown.map(s => `<span class="source-row${s.isGroup ? ' is-group' : ''}"><span class="source-row-name">${escHtml(s.label)}</span><span class="source-row-qty">×${fmt(s.qty)}</span></span>`).join('')}
-    ${rest > 0 ? `<span class="source-more">+${rest}</span>` : ''}
-  </div>`;
+  const maxStack = getMaxStack(item.shortname);
+  const minSlots = maxStack ? Math.ceil(item.quantity / maxStack) : null;
+  const efficiency = (maxStack && slots > 0) ? Math.round((minSlots / slots) * 100) : null;
+  return { slots, maxStack, minSlots, efficiency };
 }
 
 // ── Card HTML generators ──────────────────────────────────────────────────────
 function itemCardHTML(item) {
-  const sources = itemSources(item);
+  const si = itemSlotInfo(item);
+  const effColor = si.efficiency === null ? 'var(--text-muted)'
+    : si.efficiency >= 80 ? 'var(--green)'
+    : si.efficiency >= 50 ? 'var(--yellow)'
+    : 'var(--red)';
+  const effText = si.efficiency !== null ? `${si.efficiency}%` : '';
+  const wastedSlots = si.minSlots !== null ? si.slots - si.minSlots : 0;
   return `
     <div class="item-card" style="cursor:pointer" onclick="showItemModal(${item.itemId})" title="Click to see all locations">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
         ${itemIconHTML(item.shortname)}
-        <div style="min-width:0">
+        <div style="min-width:0;flex:1">
           <div class="item-name">${escHtml(item.name)}</div>
           <div class="item-qty">${fmt(item.quantity)}</div>
         </div>
       </div>
       ${item.isBlueprint ? '<div style="margin-bottom:4px"><span class="item-bp">BP</span></div>' : ''}
-      ${sourceListHTML(sources, 3)}
+      <div class="item-slot-info">
+        <span style="color:var(--text-muted)">${si.slots} slot${si.slots !== 1 ? 's' : ''}${wastedSlots > 0 ? ` <span style="color:var(--red);font-size:0.7rem">(-${wastedSlots})</span>` : ''}</span>
+        ${effText ? `<span style="font-weight:700;color:${effColor}">${effText}</span>` : ''}
+      </div>
     </div>`;
 }
 
 function tableRowHTML(item) {
-  const sources = itemSources(item);
+  const si = itemSlotInfo(item);
+  const effColor = si.efficiency === null ? 'var(--text-muted)'
+    : si.efficiency >= 80 ? 'var(--green)'
+    : si.efficiency >= 50 ? 'var(--yellow)'
+    : 'var(--red)';
+  const effText = si.efficiency !== null ? `${si.efficiency}%` : '—';
   return `
     <tr style="cursor:pointer" onclick="showItemModal(${item.itemId})" title="Click to see all locations">
       <td style="display:flex;align-items:center;gap:8px">${itemIconHTML(item.shortname, 24)}${escHtml(item.name)}${item.isBlueprint ? ' <span class="item-bp">BP</span>' : ''}</td>
       <td class="qty-cell">${item.quantity.toLocaleString()}</td>
-      <td>${sourceListHTML(sources, 2)}</td>
+      <td class="qty-cell">${si.slots}</td>
+      <td class="qty-cell" style="color:${effColor};font-weight:700">${effText}</td>
     </tr>`;
 }
 
@@ -400,6 +400,14 @@ function getSortedItems() {
     if (sort === 'qty-asc') return a.quantity - b.quantity;
     if (sort === 'name-asc') return a.name.localeCompare(b.name);
     if (sort === 'name-desc') return b.name.localeCompare(a.name);
+    if (sort === 'eff-asc' || sort === 'eff-desc') {
+      const ea = itemSlotInfo(a).efficiency;
+      const eb = itemSlotInfo(b).efficiency;
+      if (ea === null && eb === null) return 0;
+      if (ea === null) return 1;
+      if (eb === null) return -1;
+      return sort === 'eff-asc' ? ea - eb : eb - ea;
+    }
     return 0;
   });
 
@@ -481,7 +489,8 @@ function renderInventory() {
             <thead><tr>
               <th onclick="cycleSortTable('name')">Item <span class="sort-arrow" id="th-name"></span></th>
               <th onclick="cycleSortTable('qty-desc')">Quantity <span class="sort-arrow" id="th-qty">↓</span></th>
-              <th>Monitors</th>
+              <th>Slots</th>
+              <th>Efficiency</th>
             </tr></thead>
             <tbody>${grouped[cat].map(tableRowHTML).join('')}</tbody>
           </table>

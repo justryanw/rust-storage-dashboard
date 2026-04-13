@@ -40,7 +40,7 @@
       <div class="stat-value" id="statMonitors">—</div>
       <div class="stat-sub">storage monitors</div>
     </div>
-    <div class="stat-card" id="statSlotsCard" style="grid-column: span 2; cursor:pointer" onclick="showSlotsModal()" title="Click to see slot usage by item">
+    <div class="stat-card" id="statSlotsCard" style="grid-column: span 2">
       <div class="stat-label">Slots Remaining</div>
       <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
         <div class="stat-value" id="statSlotsRemaining">—</div>
@@ -81,6 +81,8 @@
         <option value="qty-asc">Quantity ↑</option>
         <option value="name-asc">Name A–Z</option>
         <option value="name-desc">Name Z–A</option>
+        <option value="eff-asc">Efficiency ↑</option>
+        <option value="eff-desc">Efficiency ↓</option>
       </select>
       <div class="view-toggle" id="viewToggle">
         <button class="view-btn active" id="viewGrid" onclick="setView('grid')" title="Grid view">⊞</button>
@@ -171,17 +173,6 @@
   </div>
 </div>
 
-<!-- Slots usage modal -->
-<div class="modal-overlay" id="slotsModal" onclick="if(event.target===this)closeSlotsModal()">
-  <div class="modal" style="width:420px">
-    <h2>Slot Usage by Item</h2>
-    <p id="slotsModalSub"></p>
-    <div id="slotsModalList" style="margin-top:8px;display:flex;flex-direction:column;gap:2px;max-height:440px;overflow-y:auto"></div>
-    <div class="modal-actions" style="margin-top:16px">
-      <button class="btn btn-ghost" onclick="closeSlotsModal()">Close</button>
-    </div>
-  </div>
-</div>
 
 <!-- Pair name modal -->
 <div class="modal-overlay" id="pairModal" onclick="if(event.target===this)dismissPairModal()">
@@ -236,6 +227,7 @@
   </div>
 </div>
 
+<script src="/js/stacksizes.js"></script>
 <script src="/js/categories.js"></script>
 <script src="/js/debug.js"></script>
 <script src="/js/state.js"></script>
