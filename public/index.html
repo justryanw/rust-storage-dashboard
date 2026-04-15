@@ -76,6 +76,7 @@
       <button class="tab-btn active" id="tabItems" onclick="switchTab('items')">Items</button>
       <button class="tab-btn" id="tabMonitors" onclick="switchTab('monitors')">Monitors</button>
       <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Activity</button>
+      <button class="tab-btn" id="tabSwitches" onclick="switchTab('switches')">Switches</button>
     </div>
     <div class="tab-controls">
       <div class="search-wrap">
@@ -121,6 +122,11 @@
   <!-- All monitors tab -->
   <div id="tabContentAll" style="display:none">
     <div id="allMonitorsList"></div>
+  </div>
+
+  <!-- Switches tab -->
+  <div id="tabContentSwitches" style="display:none">
+    <div id="switchesContainer"></div>
   </div>
 
 </div>
@@ -233,6 +239,20 @@
     <div id="groupDetailContent"></div>
     <div class="modal-actions" style="margin-top:16px">
       <button class="btn btn-ghost" onclick="closeGroupModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Switch rename modal -->
+<div class="modal-overlay" id="switchRenameModal" style="z-index:220" onclick="if(event.target===this)dismissSwitchRenameModal()">
+  <div class="modal" style="width:300px">
+    <h2 id="switchRenameTitle">Rename Switch</h2>
+    <p id="switchRenameSub">Entity ID: —</p>
+    <label>Name</label>
+    <input id="switchRenameInput" type="text" placeholder="e.g. Base Lights" onkeydown="if(event.key==='Enter')saveSwitchRename()" />
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="dismissSwitchRenameModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSwitchRename()">Save</button>
     </div>
   </div>
 </div>

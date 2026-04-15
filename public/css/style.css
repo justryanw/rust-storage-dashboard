@@ -829,3 +829,117 @@ textarea { min-height: 70px; resize: vertical; }
 .modal p { font-size: 0.82rem; color: var(--text-muted); margin-bottom: 16px; }
 .modal input { margin-bottom: 16px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+/* ── Switches grid ── */
+.switches-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.switch-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.switch-card:hover { border-color: var(--accent); }
+
+.switch-card-header {
+  padding: 10px 14px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.switch-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.switch-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switch-status-label {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.switch-card--on .switch-status-label { color: var(--green); }
+.switch-card--error .switch-status-label { color: var(--red); }
+.switch-card--pending .switch-status-label { color: var(--text-muted); }
+
+.switch-card-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.switch-card:hover .switch-card-actions { opacity: 1; }
+
+.switch-card-body {
+  padding: 16px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.switch-toggle-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.switch-toggle {
+  width: 52px;
+  height: 28px;
+  border-radius: 14px;
+  background: var(--border);
+  position: relative;
+  transition: background 0.25s;
+  cursor: pointer;
+}
+
+.switch-toggle--on {
+  background: var(--green);
+}
+
+.switch-toggle--pending {
+  opacity: 0.4;
+}
+
+.switch-toggle-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.25s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.switch-toggle--on .switch-toggle-knob {
+  transform: translateX(24px);
+}
+
+.switch-time {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}

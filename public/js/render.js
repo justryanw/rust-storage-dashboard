@@ -317,6 +317,7 @@ function render() {
   renderGroups();
   renderMonitors();
   renderAllMonitors();
+  renderSwitches();
   refreshOpenModal();
   checkNewUnlabeledMonitors();
 }
@@ -345,7 +346,11 @@ function renderStatus() {
   if (state.lastPaired && state.lastPaired.timestamp !== lastHandledPairTimestamp && state.lastPaired.timestamp > sessionStart) {
     lastHandledPairTimestamp = state.lastPaired.timestamp;
     promptedIds.add(state.lastPaired.entityId);
-    showPairModal(state.lastPaired);
+    if (state.lastPaired.entityType === 1) {
+      showSwitchPairModal(state.lastPaired);
+    } else {
+      showPairModal(state.lastPaired);
+    }
   }
 }
 
@@ -644,6 +649,7 @@ function onSearch() {
   renderGroups();
   renderMonitors();
   renderAllMonitors();
+  renderSwitches();
 }
 
 function filteredMonitors(monitors) {
@@ -762,18 +768,80 @@ function renderAllMonitors() {
   container.innerHTML = html;
 }
 
+// ── Switches view ─────────────────────────────────────────────────────────────
+function renderSwitches() {
+  const container = document.getElementById('switchesContainer');
+  if (state.status !== 'connected') { container.innerHTML = ''; return; }
+
+  const switches = Object.values(state.switches || {});
+  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+
+  let filtered = switches;
+  if (query) {
+    filtered = switches.filter(sw =>
+      (sw.label || '').toLowerCase().includes(query) ||
+      String(sw.entityId).includes(query)
+    );
+  }
+
+  filtered.sort((a, b) => (a.label || '').localeCompare(b.label || ''));
+
+  if (filtered.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🔌</div>
+        <h3>${switches.length === 0 ? 'No switches paired' : 'No switches found'}</h3>
+        <p>${switches.length === 0 ? 'Pair a Smart Switch in-game to see it here.' : 'Try a different search term.'}</p>
+      </div>`;
+    return;
+  }
+
+  let html = '<div class="switches-grid">';
+  for (const sw of filtered) {
+    const isOn = sw.value;
+    const isPending = sw.pending;
+    const hasError = !!sw.error;
+    const statusCls = isPending ? 'pending' : hasError ? 'error' : isOn ? 'on' : 'off';
+    html += `
+      <div class="switch-card switch-card--${statusCls}">
+        <div class="switch-card-header">
+          <div class="switch-card-info">
+            <span class="switch-name">${escHtml(sw.label || sw.entityId)}</span>
+            <span class="switch-status-label">${isPending ? 'Loading…' : hasError ? escHtml(sw.error) : isOn ? 'On' : 'Off'}</span>
+          </div>
+          <div class="switch-card-actions">
+            <button class="btn btn-icon" onclick="event.stopPropagation();showSwitchRenameModal('${sw.entityId}')" title="Rename">✏️</button>
+            <button class="btn btn-icon btn-danger-icon" onclick="event.stopPropagation();removeSwitch('${sw.entityId}')" title="Delete">🗑</button>
+          </div>
+        </div>
+        <div class="switch-card-body" onclick="toggleSwitch('${sw.entityId}')">
+          <div class="switch-toggle-wrap">
+            <div class="switch-toggle ${isOn ? 'switch-toggle--on' : ''}${isPending ? ' switch-toggle--pending' : ''}">
+              <div class="switch-toggle-knob"></div>
+            </div>
+          </div>
+          ${sw.lastUpdated ? `<span class="switch-time monitor-updated" data-updated="${sw.lastUpdated}">${timeAgo(sw.lastUpdated)}</span>` : ''}
+        </div>
+      </div>`;
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
 // ── UI helpers ────────────────────────────────────────────────────────────────
 function switchTab(tab) {
   currentTab = tab;
   document.getElementById('tabItems').classList.toggle('active', tab === 'items');
   document.getElementById('tabMonitors').classList.toggle('active', tab === 'monitors');
   document.getElementById('tabAll').classList.toggle('active', tab === 'all');
+  document.getElementById('tabSwitches').classList.toggle('active', tab === 'switches');
   document.getElementById('tabContentItems').style.display = tab === 'items' ? '' : 'none';
   document.getElementById('tabContentMonitors').style.display = tab === 'monitors' ? '' : 'none';
   document.getElementById('tabContentAll').style.display = tab === 'all' ? '' : 'none';
+  document.getElementById('tabContentSwitches').style.display = tab === 'switches' ? '' : 'none';
   document.getElementById('sortSelect').style.display = tab === 'items' ? '' : 'none';
   document.getElementById('viewToggle').style.display = tab === 'items' ? '' : 'none';
-  document.getElementById('searchInput').placeholder = tab === 'items' ? 'Search items…' : 'Search monitors…';
+  document.getElementById('searchInput').placeholder = tab === 'items' ? 'Search items…' : tab === 'switches' ? 'Search switches…' : 'Search monitors…';
   onSearch();
 }
 

@@ -418,6 +418,49 @@ function dismissRenameGroupModal() {
   document.getElementById('renameGroupInput').value = '';
 }
 
+// ── Switch rename modal ────────────────────────────────────────────────────────
+let pendingSwitchId = null;
+
+function showSwitchPairModal(paired) {
+  pendingSwitchId = paired.entityId;
+  document.getElementById('switchRenameTitle').textContent = 'Name this Switch';
+  document.getElementById('switchRenameSub').textContent = `Entity ID: ${paired.entityId}`;
+  document.getElementById('switchRenameInput').value = 'Smart Switch';
+  document.getElementById('switchRenameModal').classList.add('show');
+  setTimeout(() => document.getElementById('switchRenameInput').focus(), 50);
+}
+
+function showSwitchRenameModal(entityId) {
+  pendingSwitchId = entityId;
+  const sw = (state.switches || {})[String(entityId)];
+  document.getElementById('switchRenameTitle').textContent = 'Rename Switch';
+  document.getElementById('switchRenameSub').textContent = `Entity ID: ${entityId}`;
+  document.getElementById('switchRenameInput').value = sw?.label || '';
+  document.getElementById('switchRenameModal').classList.add('show');
+  setTimeout(() => document.getElementById('switchRenameInput').select(), 50);
+}
+
+async function saveSwitchRename() {
+  const name = document.getElementById('switchRenameInput').value.trim();
+  if (!name) return;
+  const id = pendingSwitchId;
+  dismissSwitchRenameModal();
+
+  // Determine if this is a new switch (pair) or existing (rename)
+  const existingIds = (state.config?.switchIds || []).map(String);
+  if (existingIds.includes(String(id))) {
+    await api('POST', `/api/switch/${id}/rename`, { name });
+  } else {
+    await api('POST', '/api/switch/confirm', { entityId: id, name });
+  }
+}
+
+function dismissSwitchRenameModal() {
+  pendingSwitchId = null;
+  document.getElementById('switchRenameModal').classList.remove('show');
+  document.getElementById('switchRenameInput').value = '';
+}
+
 async function _closeModal(name) {
   const id = pendingPairId;
   pendingPairId = null;

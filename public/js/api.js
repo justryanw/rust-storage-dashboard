@@ -163,6 +163,19 @@ async function importMonitors() {
   }
 }
 
+async function toggleSwitch(entityId) {
+  try {
+    await api('POST', `/api/switch/${entityId}/toggle`);
+  } catch (e) {
+    console.error('Switch toggle failed:', e.message);
+  }
+}
+
+async function removeSwitch(entityId) {
+  await api('DELETE', `/api/switch/${entityId}`);
+  promptedIds.delete(entityId);
+}
+
 async function refreshMonitor(event, entityId) {
   event.stopPropagation();
   const btn = document.getElementById(`modalRefreshBtn-${entityId}`);

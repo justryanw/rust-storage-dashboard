@@ -28,6 +28,7 @@ let config = {};
 let rustplus = null;
 let combinedInventory = {};
 let entityData = {};
+let switchData = {};
 let connectionStatus = 'disconnected';
 let unpowerTimers = {};
 
@@ -131,6 +132,7 @@ function buildState() {
         error: connectionError,
         inventory: combinedInventory,
         monitors: entityData,
+        switches: switchData,
         config: safeConfig(),
         lastPaired,
         lastUpdate: new Date().toISOString(),
@@ -172,11 +174,11 @@ async function startPairing() {
 
             console.log(`Pairing: entityId=${entityId} type=${entityType} ip=${body.ip}`);
 
-            // entityType 3 = StorageMonitor — record the pending pairing but don't add yet.
-            // The client will call /api/monitor/confirm once the user names it.
-            if (entityId && entityType === 3) {
+            // entityType 3 = StorageMonitor, entityType 1 = Switch
+            // Record the pending pairing — the client will call confirm once the user names it.
+            if (entityId && (entityType === 3 || entityType === 1)) {
                 const id = String(entityId);
-                lastPaired = { entityId: id, timestamp: new Date().toISOString() };
+                lastPaired = { entityId: id, entityType, timestamp: new Date().toISOString() };
                 broadcastState();
             }
         } catch (e) {
@@ -283,17 +285,78 @@ function markConnectionLost() {
     broadcastState();
 }
 
+async function setEntityValue(entityId, value) {
+    await rateLimiter.acquire(1);
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timeout = setTimeout(() => {
+            if (!settled) { settled = true; reject(new Error('Timeout')); }
+        }, 5000);
+        try {
+            rustplus.setEntityValue(parseInt(entityId), value, (message) => {
+                clearTimeout(timeout);
+                if (settled) return;
+                settled = true;
+                if (message.response && !message.response.error) {
+                    resolve();
+                } else if (message.response && message.response.error) {
+                    reject(new Error(message.response.error.error || 'Entity error'));
+                } else {
+                    reject(new Error('Unexpected response'));
+                }
+            });
+        } catch (e) {
+            clearTimeout(timeout);
+            if (!settled) { settled = true; reject(e); }
+        }
+    });
+}
+
+async function refreshAllSwitches() {
+    const switchIds = config.switchIds || [];
+    for (const entityId of switchIds) {
+        const id = String(entityId);
+        try {
+            const info = await fetchEntityInfo(entityId);
+            const payload = info.payload || {};
+            switchData[id] = {
+                entityId: id,
+                label: config.switchLabels?.[id] || `Switch ${entityId}`,
+                type: info.type,
+                value: !!payload.value,
+                lastUpdated: new Date().toISOString(),
+                error: null,
+            };
+        } catch (e) {
+            switchData[id] = {
+                entityId: id,
+                label: config.switchLabels?.[id] || `Switch ${entityId}`,
+                value: switchData[id]?.value || false,
+                error: e.message,
+                lastUpdated: switchData[id]?.lastUpdated || new Date().toISOString(),
+            };
+        }
+    }
+    broadcastState();
+}
+
 async function refreshAllEntities() {
     const entityIds = config.entityIds || [];
+    const switchIds = config.switchIds || [];
 
-    // If no monitors configured, probe with a lightweight ping instead
-    if (entityIds.length === 0) {
+    // If nothing configured, probe with a lightweight ping instead
+    if (entityIds.length === 0 && switchIds.length === 0) {
         try { await pingServer(); } catch (_) { markConnectionLost(); }
         return;
     }
 
-    await fetchAndApplyEntities(entityIds);
-    mergeInventory();
+    if (entityIds.length > 0) {
+        await fetchAndApplyEntities(entityIds);
+        mergeInventory();
+    }
+    if (switchIds.length > 0) {
+        await refreshAllSwitches();
+    }
 }
 
 function applyEntityResult(entityId, info) {
@@ -370,6 +433,7 @@ async function connectToServer(cfg) {
     }
 
     entityData = {};
+    switchData = {};
     combinedInventory = {};
     connectionError = null;
     connectionStatus = 'connecting';
@@ -384,6 +448,19 @@ async function connectToServer(cfg) {
             items: [],
             capacity: 0,
             unpowered: false,
+            pending: true,
+            error: null,
+            lastUpdated: null,
+        };
+    }
+
+    // Seed stubs for switches
+    for (const entityId of (cfg.switchIds || [])) {
+        const id = String(entityId);
+        switchData[id] = {
+            entityId: id,
+            label: cfg.switchLabels?.[id] || `Switch ${entityId}`,
+            value: false,
             pending: true,
             error: null,
             lastUpdated: null,
@@ -409,6 +486,15 @@ async function connectToServer(cfg) {
         const changed = message.broadcast.entityChanged;
         const entityId = String(changed.entityId);
         const payload = changed.payload;
+
+        // Handle switch state changes
+        if (switchData[entityId] !== undefined) {
+            switchData[entityId].value = !!payload.value;
+            switchData[entityId].lastUpdated = new Date().toISOString();
+            switchData[entityId].error = null;
+            broadcastState();
+            return;
+        }
 
         // value:true signals a change but carries no item data. It fires for both
         // power loss and item changes. Debounce: 500ms after the last value:true
@@ -493,6 +579,7 @@ app.post('/api/config', (req, res) => {
             connectionStatus = 'disconnected';
             connectionError = null;
             entityData = {};
+            switchData = {};
             combinedInventory = {};
         }
         broadcastState();
@@ -524,6 +611,7 @@ app.post('/api/disconnect', (_, res) => {
     connectionStatus = 'disconnected';
     connectionError = null;
     entityData = {};
+    switchData = {};
     combinedInventory = {};
     broadcastState();
     res.json({ success: true });
@@ -621,6 +709,105 @@ app.post('/api/refresh/:entityId', async (req, res) => {
         console.error(`/api/refresh/${id} error:`, e.message);
         res.status(500).json({ error: e.message });
     }
+});
+
+// ── Switch API ───────────────────────────────────────────────────────────────
+
+// Static routes must come before parameterized ones
+app.post('/api/switch/confirm', async (req, res) => {
+    const { entityId, name } = req.body;
+    if (!entityId) return res.status(400).json({ error: 'entityId required' });
+    const id = String(entityId);
+
+    if (!config.switchIds) config.switchIds = [];
+    if (!config.switchIds.map(String).includes(id)) config.switchIds.push(id);
+    if (name) {
+        if (!config.switchLabels) config.switchLabels = {};
+        config.switchLabels[id] = name;
+    }
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); } catch (e) { console.error('Failed to write config.json:', e.message); }
+
+    if (connectionStatus === 'connected') {
+        try {
+            const info = await fetchEntityInfo(id);
+            const payload = info.payload || {};
+            switchData[id] = {
+                entityId: id,
+                label: name || `Switch ${id}`,
+                type: info.type,
+                value: !!payload.value,
+                lastUpdated: new Date().toISOString(),
+                error: null,
+            };
+        } catch (e) {
+            switchData[id] = {
+                entityId: id,
+                label: name || `Switch ${id}`,
+                value: false,
+                error: e.message,
+                lastUpdated: new Date().toISOString(),
+            };
+        }
+    }
+
+    broadcastState();
+    res.json({ success: true });
+});
+
+app.post('/api/switch/refresh', async (req, res) => {
+    if (connectionStatus !== 'connected') {
+        return res.status(400).json({ error: 'Not connected' });
+    }
+    try {
+        await refreshAllSwitches();
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/switch/:entityId', (req, res) => {
+    const id = req.params.entityId;
+    delete switchData[id];
+    config.switchIds = (config.switchIds || []).filter(e => String(e) !== id);
+    if (config.switchLabels) delete config.switchLabels[id];
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); } catch (e) { console.error('Failed to write config.json:', e.message); }
+    broadcastState();
+    res.json({ success: true });
+});
+
+app.post('/api/switch/:entityId/toggle', async (req, res) => {
+    if (connectionStatus !== 'connected') {
+        return res.status(400).json({ error: 'Not connected' });
+    }
+    const id = req.params.entityId;
+    const sw = switchData[id];
+    if (!sw) return res.status(404).json({ error: 'Switch not found' });
+
+    const newValue = !sw.value;
+    try {
+        await setEntityValue(id, newValue);
+        switchData[id].value = newValue;
+        switchData[id].lastUpdated = new Date().toISOString();
+        switchData[id].error = null;
+        broadcastState();
+        res.json({ success: true, value: newValue });
+    } catch (e) {
+        console.error(`Switch ${id} toggle error:`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/switch/:entityId/rename', (req, res) => {
+    const id = req.params.entityId;
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'name required' });
+    if (!config.switchLabels) config.switchLabels = {};
+    config.switchLabels[id] = name.trim();
+    if (switchData[id]) switchData[id].label = name.trim();
+    try { fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); } catch (e) { console.error('Failed to write config.json:', e.message); }
+    broadcastState();
+    res.json({ success: true });
 });
 
 app.post('/api/refresh', async (_, res) => {
