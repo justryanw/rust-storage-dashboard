@@ -1030,6 +1030,104 @@ textarea { min-height: 70px; resize: vertical; }
 .map-toolbar--left { left: 8px; }
 .map-toolbar--right { right: 8px; }
 
+/* Vending-item search results panel — sits below the left toolbar inside
+   the map viewport. Scrolls when there are many listings. */
+.map-search-results {
+  position: absolute;
+  top: 56px;
+  left: 8px;
+  z-index: 22;
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 140px);
+  display: flex;
+  flex-direction: column;
+  background: rgba(20, 20, 26, 0.92);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.map-search-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.82rem;
+  color: var(--text);
+}
+.map-search-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.map-search-close:hover { color: var(--text); background: var(--bg); }
+
+.map-search-empty {
+  padding: 16px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.map-search-list {
+  overflow-y: auto;
+}
+
+.map-search-row {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.map-search-row:last-child { border-bottom: none; }
+.map-search-row:hover { background: rgba(232, 98, 42, 0.1); }
+
+.map-search-row-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text);
+}
+.map-search-row-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.map-search-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.4px;
+}
+.map-search-tag--sells { background: #14532d; color: #86efac; }
+.map-search-tag--buys  { background: #1e3a8a; color: #93c5fd; }
+
+.map-search-item { font-weight: 600; }
+.map-search-arrow { color: var(--text-muted); }
+.map-search-cost { font-weight: 600; color: var(--accent2); }
+
+.map-search-vending { font-style: italic; }
+.map-search-stock { color: var(--green); }
+.map-search-soldout { color: var(--red); font-weight: 600; }
+
 .map-follow-banner {
   position: absolute;
   top: 8px;
@@ -1164,6 +1262,17 @@ textarea { min-height: 70px; resize: vertical; }
   font-size: 0.82rem;
 }
 .vending-order:last-child { border-bottom: none; }
+
+.vending-order--titles {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  padding-top: 8px;
+  padding-bottom: 6px;
+  background: rgba(255, 255, 255, 0.025);
+}
 
 .vending-order--soldout { opacity: 0.45; }
 

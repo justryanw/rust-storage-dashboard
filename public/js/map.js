@@ -24,6 +24,7 @@ let _mapLoaded = false;
 let _mapMarkers = null;
 let _mapMeta = null;
 let _teamNotes = []; // player-placed map markers from getTeamInfo
+let _itemSearchQuery = ""; // lowercased; when non-empty, only matching vendings render
 let _drawMode = false;
 let _eraseMode = false;
 let _penDown = false;
@@ -44,6 +45,118 @@ let _brushTexture = null;
 // `null` for a known-failed lookup (so we don't retry on every marker refresh).
 const _steamProfiles = new Map();
 const _steamInflight = new Map(); // steamId -> Promise<profile|null>
+
+// Vending-machine item search. Matches against both the item being sold and
+// the currency it's bought with, so e.g. typing "scrap" surfaces both "buys X
+// for scrap" and "sells scrap for Y" listings. Results are shown in a panel
+// over the map; clicking a row centres the camera on that vending machine.
+function setItemSearch(q) {
+  _itemSearchQuery = (q || "").trim().toLowerCase();
+  _renderSearchResults();
+}
+
+function _vendingMatches(m, query) {
+  if (!query || !m.sellOrders || m.sellOrders.length === 0) return null;
+  const matches = [];
+  for (const o of m.sellOrders) {
+    const sellName = (typeof getItemName === "function" ? getItemName(o.itemId) : "").toLowerCase();
+    const costName = (typeof getItemName === "function" ? getItemName(o.currencyId) : "").toLowerCase();
+    const sellMatch = sellName.includes(query);
+    const costMatch = costName.includes(query);
+    if (sellMatch || costMatch) matches.push({ order: o, asSell: sellMatch, asCost: costMatch });
+  }
+  return matches.length > 0 ? matches : null;
+}
+
+// Centre the camera on a world position at the current zoom (no follow lock).
+function flyToWorld(wx, wy) {
+  if (!_pixiApp || !_mapContainer) return;
+  clearFollow();
+  const pos = worldToPixel(wx, wy);
+  const scale = _mapContainer.scale.x;
+  _mapContainer.position.set(
+    _pixiApp.screen.width / 2 - pos.x * scale,
+    _pixiApp.screen.height / 2 - pos.y * scale,
+  );
+}
+
+function _escHtml(s) {
+  return String(s).replace(/[&<>"']/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+}
+
+function _renderSearchResults() {
+  const panel = document.getElementById("mapSearchResults");
+  if (!panel) return;
+  const q = _itemSearchQuery;
+  if (!q) {
+    panel.style.display = "none";
+    panel.innerHTML = "";
+    return;
+  }
+
+  // Flatten: one row per matched sell order across all vending machines
+  const rows = [];
+  for (const m of (_mapMarkers || [])) {
+    if (m.type !== "VendingMachine") continue;
+    const matches = _vendingMatches(m, q);
+    if (!matches) continue;
+    for (const { order, asSell } of matches) {
+      const stock = order.amountInStock || 0;
+      rows.push({
+        vendingName: m.name || "Vending Machine",
+        x: m.x,
+        y: m.y,
+        sellName: getItemName(order.itemId),
+        sellQty: order.quantity || 0,
+        costName: getItemName(order.currencyId),
+        costPer: order.costPerItem || 0,
+        stock,
+        asSell,
+        soldOut: stock <= 0,
+        outOfStock: !!m.outOfStock,
+      });
+    }
+  }
+
+  if (rows.length === 0) {
+    panel.innerHTML = `<div class="map-search-empty">No vending listings match <b>${_escHtml(q)}</b></div>`;
+    panel.style.display = "";
+    return;
+  }
+
+  // Sort: in-stock first, then by lowest unit price for the matched item
+  rows.sort((a, b) => {
+    if (a.soldOut !== b.soldOut) return a.soldOut ? 1 : -1;
+    return a.costPer / Math.max(a.sellQty, 1) - b.costPer / Math.max(b.sellQty, 1);
+  });
+
+  const header = `<div class="map-search-header">
+    <span><b>${rows.length}</b> listing${rows.length !== 1 ? "s" : ""} match <b>${_escHtml(q)}</b></span>
+    <button class="map-search-close" onclick="setItemSearch('');document.getElementById('mapItemSearch').value='';" title="Close">✕</button>
+  </div>`;
+
+  const body = rows.map((r, i) => {
+    const tag = r.asSell
+      ? `<span class="map-search-tag map-search-tag--sells">SELLS</span>`
+      : `<span class="map-search-tag map-search-tag--buys">BUYS WITH</span>`;
+    const soldOut = r.soldOut ? `<span class="map-search-soldout">Sold out</span>` : `<span class="map-search-stock">${r.stock} in stock</span>`;
+    return `<div class="map-search-row" onclick="flyToWorld(${r.x}, ${r.y})">
+      <div class="map-search-row-main">
+        ${tag}
+        <span class="map-search-item">${r.sellQty}× ${_escHtml(r.sellName)}</span>
+        <span class="map-search-arrow">←</span>
+        <span class="map-search-cost">${r.costPer}× ${_escHtml(r.costName)}</span>
+      </div>
+      <div class="map-search-row-sub">
+        <span class="map-search-vending">${_escHtml(r.vendingName)}</span>
+        ${soldOut}
+      </div>
+    </div>`;
+  }).join("");
+
+  panel.innerHTML = header + `<div class="map-search-list">${body}</div>`;
+  panel.style.display = "";
+}
 
 function getSteamProfile(steamId) {
   if (!steamId) return Promise.resolve(null);
@@ -128,7 +241,9 @@ function initPixiApp() {
         <div class="map-toolbar map-toolbar--overlay map-toolbar--left">
           <button class="btn btn-ghost map-toolbar-btn" onclick="refreshMapMarkers()" title="Refresh markers">↻</button>
           <span class="map-toolbar-info" id="mapMarkerCount"></span>
+          <input type="text" id="mapItemSearch" placeholder="Find vending item…" value="${_itemSearchQuery}" oninput="setItemSearch(this.value)" style="margin-left:6px;padding:4px 8px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:4px;font-size:0.82rem;width:180px" />
         </div>
+        <div class="map-search-results" id="mapSearchResults" style="display:none"></div>
         <div class="map-follow-banner" id="mapFollowBanner" style="display:none">
           <span class="map-follow-icon">🎯</span>
           <span>Following <span class="map-follow-name"></span></span>
@@ -921,7 +1036,7 @@ async function renderMarkers() {
       });
     }
 
-    markerC._screenScale = true; // counter-scaled in the ticker
+    markerC._screenScale = true;
     _staticMarkersContainer.addChild(markerC);
     count++;
   }
@@ -947,6 +1062,9 @@ async function renderMarkers() {
 
   const countEl = document.getElementById("mapMarkerCount");
   if (countEl) countEl.textContent = `${count} marker${count !== 1 ? "s" : ""}`;
+
+  // Refresh the search results panel so new/changed vending listings appear
+  if (_itemSearchQuery) _renderSearchResults();
 }
 
 // ── Vending Popup ────────────────────────────────────────────────────────────
@@ -979,7 +1097,7 @@ function showVendingPopup(m, screenX, screenY) {
             <div class="vending-order-qty">x${order.quantity || 0}</div>
           </div>
         </div>
-        <div class="vending-order-arrow">&rarr;</div>
+        <div class="vending-order-arrow">&larr;</div>
         <div class="vending-order-cost">
           ${itemIconHTML(costShort, 28)}
           <div>
@@ -995,12 +1113,20 @@ function showVendingPopup(m, screenX, screenY) {
   popup.id = "vendingPopup";
   popup.className = "vending-popup";
   popup.style.pointerEvents = "auto";
+  const columnTitles = orders.length > 0
+    ? `<div class="vending-order vending-order--titles">
+         <div>Selling</div>
+         <div></div>
+         <div>Cost</div>
+         <div></div>
+       </div>`
+    : "";
   popup.innerHTML = `
     <div class="vending-popup-header">
       <span class="vending-popup-name">${escHtml(name)}</span>
       <button class="vending-popup-close" onclick="closeVendingPopup()">&#x2715;</button>
     </div>
-    <div class="vending-popup-orders">${itemsHtml || '<div style="color:var(--text-muted);padding:8px">No items listed</div>'}</div>`;
+    <div class="vending-popup-orders">${columnTitles}${itemsHtml || '<div style="color:var(--text-muted);padding:8px">No items listed</div>'}</div>`;
 
   // Position near click
   const viewportRect = document
