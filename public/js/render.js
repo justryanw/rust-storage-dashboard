@@ -532,6 +532,12 @@ function renderInventory() {
         <div class="category-header">${CATEGORY_LABELS[cat]}</div>
         <div class="inventory-grid">${grouped[cat].map(itemCardHTML).join('')}</div>
       </div>`).join('');
+  } else if (currentView === 'slots') {
+    container.innerHTML = cats.map(cat => `
+      <div class="category-section">
+        <div class="category-header">${CATEGORY_LABELS[cat]}</div>
+        <div class="inv-grid inv-grid--compact">${grouped[cat].map(itemCellHTML).join('')}</div>
+      </div>`).join('');
   } else {
     container.innerHTML = cats.map(cat => `
       <div class="category-section">
@@ -549,6 +555,12 @@ function renderInventory() {
         </div>
       </div>`).join('');
   }
+}
+
+function itemCellHTML(item) {
+  const qty = `<span class="inv-grid-qty">${fmt(item.quantity)}</span>`;
+  const title = `${item.name} ×${item.quantity.toLocaleString()}`;
+  return `<div class="inv-grid-cell inv-grid-cell--filled" style="cursor:pointer" onclick="showItemModal(${item.itemId})" title="${escHtml(title)}">${itemIconHTML(item.shortname, 48)}${qty}</div>`;
 }
 
 function cycleSortTable(col) {
@@ -861,6 +873,7 @@ function setView(v) {
   currentView = v;
   document.getElementById('viewGrid').classList.toggle('active', v === 'grid');
   document.getElementById('viewTable').classList.toggle('active', v === 'table');
+  document.getElementById('viewSlots').classList.toggle('active', v === 'slots');
   renderInventory();
 }
 

@@ -543,6 +543,22 @@ textarea { min-height: 70px; resize: vertical; }
   margin-bottom: 12px;
 }
 
+.inv-grid--compact {
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 4px;
+}
+
+.inv-grid--compact .inv-grid-cell img {
+  width: 80%;
+  height: 80%;
+}
+
+.inv-grid--compact .inv-grid-qty {
+  font-size: 0.9rem;
+  bottom: 1px;
+  right: 2px;
+}
+
 .inv-grid-cell {
   aspect-ratio: 1;
   background: var(--surface2);

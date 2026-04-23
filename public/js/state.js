@@ -1,7 +1,7 @@
 // ── Global state ──────────────────────────────────────────────────────────────
 let state = { status: 'disconnected', inventory: {}, monitors: {}, config: {} };
 let ws = null;
-let currentView = 'grid';
+let currentView = 'slots';
 let wsReconnectTimer = null;
 let autoReconnectTimer = null;
 const RECONNECT_INTERVAL = 5000;
