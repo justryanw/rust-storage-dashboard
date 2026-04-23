@@ -151,6 +151,12 @@ function initPixiApp() {
     background: 0x111117,
     resizeTo: viewport,
     antialias: true,
+    // Render at native device pixel density so Graphics edges (the player
+    // ring, dots, etc.) and sprites are crisp on hi-DPI displays. autoDensity
+    // keeps the canvas's CSS size in logical pixels so pointer math doesn't
+    // need to change.
+    resolution: window.devicePixelRatio || 1,
+    autoDensity: true,
   });
   pixiContainer.appendChild(_pixiApp.view);
   _pixiApp.view.style.display = "block";
@@ -372,6 +378,27 @@ function _markerKey(m) {
   return `${m.type}_${m.id}`;
 }
 
+// PIXI.Text rasterizes once and then scales with its parent — so default
+// resolution + map zoom = blurry. Render at 2× devicePixelRatio for a sharp
+// source bitmap; the counter-scaling below keeps the displayed size constant
+// so we hit close to 1:1 pixels at any zoom.
+const _TEXT_RESOLUTION = (window.devicePixelRatio || 1) * 2;
+function _makeMarkerText(content, opts = {}) {
+  const t = new PIXI.Text(content, {
+    fontSize: 11,
+    fontFamily: "Segoe UI, system-ui, sans-serif",
+    fill: 0xffffff,
+    fontWeight: "700",
+    dropShadow: true,
+    dropShadowColor: 0x000000,
+    dropShadowBlur: 4,
+    dropShadowDistance: 0,
+    ...opts,
+  });
+  t.resolution = _TEXT_RESOLUTION;
+  return t;
+}
+
 function _tickMarkerInterpolation() {
   // Advance any active position tweens
   if (_markerTweens.size > 0) {
@@ -385,6 +412,17 @@ function _tickMarkerInterpolation() {
         tween.fromY + (tween.toY - tween.fromY) * t,
       );
       if (t >= 1) _markerTweens.delete(key);
+    }
+  }
+
+  // Counter-scale opted-in markers so their on-screen size is constant
+  // regardless of map zoom. Markers without `_screenScale` (e.g. radius
+  // circles) keep their world-space size.
+  if (_mapContainer && _staticMarkersContainer && _movingMarkersContainer) {
+    const invScale = 1 / _mapContainer.scale.x;
+    for (const c of _movingMarkers.values()) c.scale.set(invScale);
+    for (const c of _staticMarkersContainer.children) {
+      if (c._screenScale) c.scale.set(invScale);
     }
   }
 
@@ -449,16 +487,7 @@ function makeMovingMarker(m) {
     dot.drawCircle(0, 0, dotSize);
     dot.endFill();
     c.addChild(dot);
-    const text = new PIXI.Text(label, {
-      fontSize: 11,
-      fontFamily: "Segoe UI, system-ui, sans-serif",
-      fill: 0xffffff,
-      fontWeight: "700",
-      dropShadow: true,
-      dropShadowColor: 0x000000,
-      dropShadowBlur: 4,
-      dropShadowDistance: 0,
-    });
+    const text = _makeMarkerText(label);
     text.anchor.set(0.5, 0);
     text.position.set(0, dotSize + 3);
     c.addChild(text);
@@ -512,16 +541,7 @@ function makePlayerMarker(name, avatarUrl) {
   }
 
   if (name) {
-    const label = new PIXI.Text(name, {
-      fontSize: 11,
-      fontFamily: "Segoe UI, system-ui, sans-serif",
-      fill: 0xffffff,
-      fontWeight: "700",
-      dropShadow: true,
-      dropShadowColor: 0x000000,
-      dropShadowBlur: 4,
-      dropShadowDistance: 0,
-    });
+    const label = _makeMarkerText(name);
     label.anchor.set(0.5, 0);
     label.position.set(0, size / 2 + 3);
     container.addChild(label);
@@ -632,15 +652,9 @@ async function renderMarkers() {
     dot.endFill();
     markerC.addChild(dot);
 
-    const label = new PIXI.Text(name + (m.outOfStock ? " (Sold Out)" : ""), {
-      fontSize: 11,
-      fontFamily: "Segoe UI, system-ui, sans-serif",
-      fill: 0xffffff,
+    const label = _makeMarkerText(name + (m.outOfStock ? " (Sold Out)" : ""), {
       fontWeight: "600",
-      dropShadow: true,
-      dropShadowColor: 0x000000,
       dropShadowBlur: 3,
-      dropShadowDistance: 0,
     });
     label.anchor.set(0, 0.5);
     label.position.set(dotSize + 4, 0);
@@ -661,6 +675,7 @@ async function renderMarkers() {
       });
     }
 
+    markerC._screenScale = true; // counter-scaled in the ticker
     _staticMarkersContainer.addChild(markerC);
     count++;
   }
