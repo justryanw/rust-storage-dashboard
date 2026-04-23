@@ -142,6 +142,29 @@ textarea { min-height: 70px; resize: vertical; }
 .stat-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 2px; }
 
 /* ── Controls ── */
+.top-tab-bar {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 16px;
+}
+
+.top-tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-muted);
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+  margin-bottom: -2px;
+}
+
+.top-tab-btn:hover { color: var(--text); }
+.top-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
 .tab-bar {
   display: flex;
   flex-direction: column;

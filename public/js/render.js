@@ -346,7 +346,8 @@ function renderStatus() {
   if (status !== 'connected') { refreshBtn.style.background = ''; }
 
   const connected = status === 'connected';
-  document.getElementById('statsBar').style.display = connected ? '' : 'none';
+  const isStorage = STORAGE_SUBTABS.includes(currentTab);
+  document.getElementById('statsBar').style.display = (connected && isStorage) ? '' : 'none';
   document.getElementById('controlsBar').style.display = connected ? '' : 'none';
 
   showBanner(status === 'error' && error ? `Connection error: ${error}` : null);
@@ -849,13 +850,35 @@ function renderSwitches() {
 }
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
+const STORAGE_SUBTABS = ['items', 'monitors', 'all'];
+
+function switchSection(section) {
+  if (section === 'storage') {
+    // Restore last storage sub-tab, defaulting to 'items' on first entry
+    switchTab(STORAGE_SUBTABS.includes(currentTab) ? currentTab : 'items');
+  } else if (section === 'switches') {
+    switchTab('switches');
+  } else if (section === 'map') {
+    switchTab('map');
+  }
+}
+
 function switchTab(tab) {
   currentTab = tab;
+  const isStorage = STORAGE_SUBTABS.includes(tab);
+
+  // Top-level highlight
+  document.getElementById('topTabStorage').classList.toggle('active', isStorage);
+  document.getElementById('topTabSwitches').classList.toggle('active', tab === 'switches');
+  document.getElementById('topTabMap').classList.toggle('active', tab === 'map');
+
+  // Sub-tab bar and stats are part of the Storage section only
+  document.getElementById('storageSubTabs').style.display = isStorage ? '' : 'none';
+  document.getElementById('statsBar').style.display = isStorage ? '' : 'none';
+
   document.getElementById('tabItems').classList.toggle('active', tab === 'items');
   document.getElementById('tabMonitors').classList.toggle('active', tab === 'monitors');
   document.getElementById('tabAll').classList.toggle('active', tab === 'all');
-  document.getElementById('tabSwitches').classList.toggle('active', tab === 'switches');
-  document.getElementById('tabMap').classList.toggle('active', tab === 'map');
   document.getElementById('tabContentItems').style.display = tab === 'items' ? '' : 'none';
   document.getElementById('tabContentMonitors').style.display = tab === 'monitors' ? '' : 'none';
   document.getElementById('tabContentAll').style.display = tab === 'all' ? '' : 'none';

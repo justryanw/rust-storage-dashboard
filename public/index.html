@@ -28,7 +28,14 @@
   <!-- Error banner -->
   <div class="error-banner" id="errorBanner"></div>
 
-  <!-- Stats bar -->
+  <!-- Top-level section tabs -->
+  <div class="top-tab-bar">
+    <button class="top-tab-btn active" id="topTabStorage" onclick="switchSection('storage')">Storage</button>
+    <button class="top-tab-btn" id="topTabSwitches" onclick="switchSection('switches')">Switches</button>
+    <button class="top-tab-btn" id="topTabMap" onclick="switchSection('map')">Map</button>
+  </div>
+
+  <!-- Stats bar (Storage section only) -->
   <div class="stats-bar" id="statsBar">
     <div class="stat-card">
       <div class="stat-label">Unique Items</div>
@@ -72,12 +79,10 @@
 
   <!-- Tab bar -->
   <div class="tab-bar" id="controlsBar">
-    <div class="tab-buttons">
+    <div class="tab-buttons" id="storageSubTabs">
       <button class="tab-btn active" id="tabItems" onclick="switchTab('items')">Items</button>
       <button class="tab-btn" id="tabMonitors" onclick="switchTab('monitors')">Monitors</button>
       <button class="tab-btn" id="tabAll" onclick="switchTab('all')">Activity</button>
-      <button class="tab-btn" id="tabSwitches" onclick="switchTab('switches')">Switches</button>
-      <button class="tab-btn" id="tabMap" onclick="switchTab('map')">Map</button>
     </div>
     <div class="tab-controls">
       <div class="search-wrap">
