@@ -15,14 +15,21 @@ const crypto = require('crypto');
     if (!fs.existsSync(protoPath)) return;
     try {
         const original = fs.readFileSync(protoPath, 'utf8');
-        // Rust+ in practice omits many fields the proto declares `required`,
-        // which makes the strict protobufjs decoder throw and kill the
-        // request mid-flight. Relaxing every `required` to `optional` matches
-        // what most rustplus.js wrappers do and is the only reliable fix.
-        const patched = original.replace(/\brequired\b/g, 'optional');
+        // 1) Relax required→optional. Rust+ omits many declared-required
+        //    fields, which would otherwise crash the strict decoder.
+        let patched = original.replace(/\brequired\b/g, 'optional');
+        // 2) The bundled proto's Note message is missing the icon/colour/
+        //    label fields that newer Rust+ sends (verified empirically via
+        //    /api/debug/team-raw — icon=5, colourIndex=6, label=7).
+        if (!/colourIndex/.test(patched)) {
+            patched = patched.replace(
+                /(message Note \{[\s\S]*?optional float y = 4;)/,
+                '$1\n\t\toptional int32 icon = 5;\n\t\toptional int32 colourIndex = 6;\n\t\toptional string label = 7;'
+            );
+        }
         if (patched !== original) {
             fs.writeFileSync(protoPath, patched);
-            console.log('Patched rustplus.proto: required → optional');
+            console.log('Patched rustplus.proto: required→optional + Note icon/colourIndex/label');
         }
     } catch (e) {
         console.warn('Failed to patch rustplus.proto:', e.message);
@@ -1158,3 +1165,4 @@ server.listen(PORT, '::', () => {
         connectToServer(config).catch(console.error);
     }
 });
+

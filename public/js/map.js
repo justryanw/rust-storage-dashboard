@@ -468,38 +468,85 @@ function _updateFollowBanner() {
   }
 }
 
-// Player-placed team map note. Rust+ exposes a `type` int for the note's
-// in-game icon (pin / heart / skull / etc.) — without an official mapping we
-// just color-cycle by type so notes of the same type look the same.
-const TEAM_NOTE_COLORS = [0xfacc15, 0xef4444, 0x60a5fa, 0xa78bfa, 0x4ade80, 0xfb923c];
+// Player-placed team map note. Rust+ exposes:
+//   - type (2):         0 = death marker, 1 = user-placed pin
+//   - icon (5):         0..11 — the icon picker in the in-game editor
+//   - colourIndex (6):  0..5  — the colour picker
+//   - label (7):        user-entered text
+// Wire indexes follow the editor's visual order. 0 = yellow (the default).
+const TEAM_NOTE_COLORS = [
+  0xeab308, // 0 yellow (default)
+  0x3b82f6, // 1 blue
+  0x22c55e, // 2 green
+  0xef4444, // 3 red
+  0xa855f7, // 4 purple
+  0x14b8a6, // 5 teal
+];
+// Order matches the in-game editor's icon grid (left-to-right, top-to-bottom)
+const TEAM_NOTE_ICONS = [
+  "📍", // 0  pin
+  "💵", // 1  dollar
+  "🏠", // 2  house
+  "💎", // 3  diamond
+  "🎯", // 4  target
+  "🛡", // 5  shield
+  "💀", // 6  skull
+  "🛏", // 7  bed
+  "💤", // 8  sleep
+  "🔫", // 9  pistol
+  "🏍", // 10 dirtbike
+  "💼", // 11 briefcase
+];
+
 function makeTeamNoteMarker(note) {
   const c = new PIXI.Container();
-  const color = TEAM_NOTE_COLORS[(note.type ?? 0) % TEAM_NOTE_COLORS.length];
+  const isDeath = (note.type ?? 0) === 0;
+  const colorIdx = note.colourIndex ?? 0; // default yellow (Rust+ omits when default)
+  const color = TEAM_NOTE_COLORS[colorIdx % TEAM_NOTE_COLORS.length];
+  const iconIdx = isDeath ? 6 : (note.icon ?? 0); // death marker → skull
+  const iconChar = TEAM_NOTE_ICONS[iconIdx % TEAM_NOTE_ICONS.length];
 
-  // Classic pin: triangle with the apex at the actual location, circular head
+  const headRadius = 9;
+  const stem = 12; // distance from tip (location) to centre of head
+
+  // Pin: triangle stem with circular head; tip at (0, 0) = the actual location
   const pin = new PIXI.Graphics();
   pin.beginFill(color, 1);
-  pin.lineStyle(1.5, 0x000000, 0.8);
-  pin.moveTo(0, 0);        // tip = the world location
-  pin.lineTo(-6, -12);
-  pin.lineTo(6, -12);
+  pin.lineStyle(1.5, 0x000000, 0.85);
+  pin.moveTo(0, 0);
+  pin.lineTo(-headRadius * 0.55, -stem);
+  pin.lineTo(headRadius * 0.55, -stem);
   pin.lineTo(0, 0);
   pin.endFill();
   pin.beginFill(color, 1);
-  pin.lineStyle(1.5, 0x000000, 0.8);
-  pin.drawCircle(0, -16, 6);
-  pin.endFill();
-  // Inner dot for contrast
-  pin.beginFill(0x000000, 0.5);
-  pin.lineStyle(0);
-  pin.drawCircle(0, -16, 2);
+  pin.lineStyle(1.5, 0x000000, 0.85);
+  pin.drawCircle(0, -stem - headRadius * 0.4, headRadius);
   pin.endFill();
   c.addChild(pin);
+
+  // Icon glyph centred in the head
+  const iconText = new PIXI.Text(iconChar, {
+    fontSize: 12,
+    fontFamily: '"Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", system-ui, sans-serif',
+    fill: 0xffffff,
+  });
+  iconText.anchor.set(0.5);
+  iconText.position.set(0, -stem - headRadius * 0.4);
+  iconText.resolution = _TEXT_RESOLUTION;
+  c.addChild(iconText);
+
+  // Optional user-entered label below the pin
+  if (note.label) {
+    const labelText = _makeMarkerText(note.label);
+    labelText.anchor.set(0.5, 0);
+    labelText.position.set(0, 4);
+    c.addChild(labelText);
+  }
 
   c._screenScale = true;
   c.interactive = true;
   c.cursor = "default";
-  c.hitArea = new PIXI.Circle(0, -10, 10);
+  c.hitArea = new PIXI.Circle(0, -stem - headRadius * 0.4, headRadius + 4);
   return c;
 }
 
