@@ -5,10 +5,21 @@ let _pixiApp = null;
 let _mapContainer = null;
 let _mapSprite = null;
 let _markersContainer = null;
+// Static markers (vending, crates, radii) are wiped and rebuilt every render.
+// Moving markers (players, helis, chinooks, cargo) live across renders so we
+// can interpolate their position from the previous tick to the next.
+let _staticMarkersContainer = null;
+let _movingMarkersContainer = null;
+const _movingMarkers = new Map(); // `${type}_${id}` -> PIXI.Container
+const _markerTweens = new Map();  // same key -> { fromX, fromY, toX, toY, startTime, duration }
+const MOVING_TYPES = new Set(["Player", "PatrolHelicopter", "CH47", "CargoShip"]);
+// When set, the camera recenters on this marker every frame.
+let _followingKey = null;
+let _followingLabel = "";
 // Drawing layer lives entirely on the GPU. CPU only ships a few floats of
 // stroke geometry per pointer event; never any pixel data during drawing.
-let _drawRenderTexture = null;  // GPU-only canvas for committed paint
-let _drawSprite = null;         // PIXI.Sprite displaying the RenderTexture
+let _drawRenderTexture = null; // GPU-only canvas for committed paint
+let _drawSprite = null; // PIXI.Sprite displaying the RenderTexture
 let _mapLoaded = false;
 let _mapMarkers = null;
 let _mapMeta = null;
@@ -16,7 +27,7 @@ let _drawMode = false;
 let _eraseMode = false;
 let _penDown = false;
 let _lastDrawPt = null;
-let _drawColor = '#000000';
+let _drawColor = "#000000";
 let _drawWidth = 10;
 let _drawDirty = false;
 let _saveTimer = null;
@@ -28,22 +39,47 @@ const _pendingSaveIds = new Set();
 // Pre-rendered soft radial-gradient brush, built lazily and reused for every
 // stamp. Tinted per-stroke; eraser uses ERASE blend mode.
 let _brushTexture = null;
+// Steam profile cache: steamId -> { name, avatar, avatarFull, ... } or
+// `null` for a known-failed lookup (so we don't retry on every marker refresh).
+const _steamProfiles = new Map();
+const _steamInflight = new Map(); // steamId -> Promise<profile|null>
+
+function getSteamProfile(steamId) {
+  if (!steamId) return Promise.resolve(null);
+  if (_steamProfiles.has(steamId))
+    return Promise.resolve(_steamProfiles.get(steamId));
+  if (_steamInflight.has(steamId)) return _steamInflight.get(steamId);
+  const p = fetch(`/api/steam/profile/${steamId}`)
+    .then((r) => (r.ok ? r.json() : null))
+    .then((profile) => {
+      _steamProfiles.set(steamId, profile);
+      _steamInflight.delete(steamId);
+      return profile;
+    })
+    .catch(() => {
+      _steamProfiles.set(steamId, null);
+      _steamInflight.delete(steamId);
+      return null;
+    });
+  _steamInflight.set(steamId, p);
+  return p;
+}
 
 // Keys are proto enum names — protobufjs's default toJSON serializes enums as
 // their string names, not integers, so `m.type` arrives as e.g. "Player".
 const MARKER_TYPES = {
-  Player: { label: 'Player', color: 0x4ade80 },
-  Explosion: { label: 'Explosion', color: 0xf87171 },
-  VendingMachine: { label: 'Vending Machine', color: 0x60a5fa },
-  CH47: { label: 'CH47', color: 0xfacc15 },
-  CargoShip: { label: 'Cargo Ship', color: 0xf97316 },
-  Crate: { label: 'Crate', color: 0xa78bfa },
-  GenericRadius: { label: 'Radius', color: 0xfacc15 },
-  PatrolHelicopter: { label: 'Attack Helicopter', color: 0xef4444 },
+  Player: { label: "Player", color: 0x4ade80 },
+  Explosion: { label: "Explosion", color: 0xf87171 },
+  VendingMachine: { label: "Vending Machine", color: 0x60a5fa },
+  CH47: { label: "CH47", color: 0xfacc15 },
+  CargoShip: { label: "Cargo Ship", color: 0xf97316 },
+  Crate: { label: "Crate", color: 0xa78bfa },
+  GenericRadius: { label: "Radius", color: 0xfacc15 },
+  PatrolHelicopter: { label: "Attack Helicopter", color: 0xef4444 },
 };
 
 function hexToNum(hex) {
-  return parseInt(hex.replace('#', ''), 16);
+  return parseInt(hex.replace("#", ""), 16);
 }
 
 // Logarithmic brush slider: position 0..1000 ↔ size 1..200 world pixels.
@@ -52,11 +88,19 @@ const _BRUSH_MIN = 1;
 const _BRUSH_MAX = 200;
 function sliderToBrushSize(pos) {
   const t = Math.min(Math.max(pos, 0), 1000) / 1000;
-  return Math.round(Math.exp(Math.log(_BRUSH_MIN) + t * (Math.log(_BRUSH_MAX) - Math.log(_BRUSH_MIN))));
+  return Math.round(
+    Math.exp(
+      Math.log(_BRUSH_MIN) + t * (Math.log(_BRUSH_MAX) - Math.log(_BRUSH_MIN)),
+    ),
+  );
 }
 function brushSizeToSlider(size) {
   const s = Math.min(Math.max(size, _BRUSH_MIN), _BRUSH_MAX);
-  return Math.round(((Math.log(s) - Math.log(_BRUSH_MIN)) / (Math.log(_BRUSH_MAX) - Math.log(_BRUSH_MIN))) * 1000);
+  return Math.round(
+    ((Math.log(s) - Math.log(_BRUSH_MIN)) /
+      (Math.log(_BRUSH_MAX) - Math.log(_BRUSH_MIN))) *
+      1000,
+  );
 }
 
 // ── Coordinate conversion ────────────────────────────────────────────────────
@@ -75,7 +119,7 @@ function worldToPixel(wx, wy) {
 
 // ── PixiJS Setup ─────────────────────────────────────────────────────────────
 function initPixiApp() {
-  const container = document.getElementById('mapContainer');
+  const container = document.getElementById("mapContainer");
   container.innerHTML = `
     <div class="map-wrapper" id="mapWrapper">
       <div class="map-viewport" id="mapViewport">
@@ -83,6 +127,11 @@ function initPixiApp() {
         <div class="map-toolbar map-toolbar--overlay map-toolbar--left">
           <button class="btn btn-ghost map-toolbar-btn" onclick="refreshMapMarkers()" title="Refresh markers">↻</button>
           <span class="map-toolbar-info" id="mapMarkerCount"></span>
+        </div>
+        <div class="map-follow-banner" id="mapFollowBanner" style="display:none">
+          <span class="map-follow-icon">🎯</span>
+          <span>Following <span class="map-follow-name"></span></span>
+          <button class="map-follow-close" onclick="clearFollow()" title="Stop following">✕</button>
         </div>
         <div class="map-toolbar map-toolbar--overlay map-toolbar--right">
           <button class="btn btn-ghost map-toolbar-btn" id="mapDrawToggle" onclick="toggleDrawMode()">Draw</button>
@@ -95,8 +144,8 @@ function initPixiApp() {
       </div>
     </div>`;
 
-  const viewport = document.getElementById('mapViewport');
-  const pixiContainer = document.getElementById('mapPixiContainer');
+  const viewport = document.getElementById("mapViewport");
+  const pixiContainer = document.getElementById("mapPixiContainer");
 
   _pixiApp = new PIXI.Application({
     background: 0x111117,
@@ -104,7 +153,7 @@ function initPixiApp() {
     antialias: true,
   });
   pixiContainer.appendChild(_pixiApp.view);
-  _pixiApp.view.style.display = 'block';
+  _pixiApp.view.style.display = "block";
 
   _mapContainer = new PIXI.Container();
   _pixiApp.stage.addChild(_mapContainer);
@@ -120,14 +169,14 @@ function initPixiApp() {
 
 // ── Map Image Loading ────────────────────────────────────────────────────────
 async function loadMapImage() {
-  const res = await fetch('/api/map');
-  if (!res.ok) throw new Error('Failed to fetch map');
+  const res = await fetch("/api/map");
+  if (!res.ok) throw new Error("Failed to fetch map");
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
 
   // Load image into an HTMLImageElement first, then create texture
   const img = new Image();
-  img.crossOrigin = 'anonymous';
+  img.crossOrigin = "anonymous";
   await new Promise((resolve, reject) => {
     img.onload = resolve;
     img.onerror = reject;
@@ -143,7 +192,17 @@ async function loadMapImage() {
   _drawRenderTexture = PIXI.RenderTexture.create({ width: mapW, height: mapH });
   _drawSprite = new PIXI.Sprite(_drawRenderTexture);
   _mapContainer.addChild(_drawSprite);
+
+  // Two marker layers: static is cleared/rebuilt each render; moving is
+  // persistent so we can tween position smoothly between server updates.
+  _staticMarkersContainer = new PIXI.Container();
+  _movingMarkersContainer = new PIXI.Container();
+  _markersContainer.addChild(_staticMarkersContainer);
+  _markersContainer.addChild(_movingMarkersContainer);
   _mapContainer.addChild(_markersContainer);
+
+  // Per-frame interpolation for any active marker tweens
+  _pixiApp.ticker.add(_tickMarkerInterpolation);
 
   // Fit to viewport
   const vw = _pixiApp.screen.width;
@@ -165,37 +224,41 @@ function setupPanZoom() {
   let startX, startY, startPosX, startPosY;
   let hasMoved = false;
 
-  canvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    if (_drawMode || _eraseMode) return;
+  canvas.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      if (_drawMode || _eraseMode) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const my = e.clientY - rect.top;
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
 
-    const oldScale = _mapContainer.scale.x;
-    const factor = e.deltaY > 0 ? 0.9 : 1.1;
-    const newScale = Math.min(Math.max(oldScale * factor, 0.05), 20);
+      const oldScale = _mapContainer.scale.x;
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      const newScale = Math.min(Math.max(oldScale * factor, 0.05), 20);
 
-    // Zoom toward mouse
-    const worldX = (mx - _mapContainer.position.x) / oldScale;
-    const worldY = (my - _mapContainer.position.y) / oldScale;
-    _mapContainer.scale.set(newScale);
-    _mapContainer.position.set(
-      mx - worldX * newScale,
-      my - worldY * newScale,
-    );
-  }, { passive: false });
+      // Zoom toward mouse
+      const worldX = (mx - _mapContainer.position.x) / oldScale;
+      const worldY = (my - _mapContainer.position.y) / oldScale;
+      _mapContainer.scale.set(newScale);
+      _mapContainer.position.set(
+        mx - worldX * newScale,
+        my - worldY * newScale,
+      );
+    },
+    { passive: false },
+  );
 
-  canvas.addEventListener('pointerleave', () => {
+  canvas.addEventListener("pointerleave", () => {
     if (_brushCursor) _brushCursor.visible = false;
   });
 
-  canvas.addEventListener('pointerenter', (e) => {
+  canvas.addEventListener("pointerenter", (e) => {
     if (_drawMode || _eraseMode) updateBrushCursor(e.clientX, e.clientY);
   });
 
-  canvas.addEventListener('pointerdown', (e) => {
+  canvas.addEventListener("pointerdown", (e) => {
     if (_drawMode) {
       updateBrushCursor(e.clientX, e.clientY);
       startDrawStroke(e);
@@ -212,10 +275,10 @@ function setupPanZoom() {
     startY = e.clientY;
     startPosX = _mapContainer.position.x;
     startPosY = _mapContainer.position.y;
-    canvas.style.cursor = 'grabbing';
+    canvas.style.cursor = "grabbing";
   });
 
-  window.addEventListener('pointermove', (e) => {
+  window.addEventListener("pointermove", (e) => {
     if (_drawMode || _eraseMode) {
       updateBrushCursor(e.clientX, e.clientY);
       if (_penDown) {
@@ -227,11 +290,14 @@ function setupPanZoom() {
     if (!isPanning) return;
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) hasMoved = true;
+    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) {
+      if (!hasMoved && _followingKey) clearFollow(); // user took manual control
+      hasMoved = true;
+    }
     _mapContainer.position.set(startPosX + dx, startPosY + dy);
   });
 
-  window.addEventListener('pointerup', (e) => {
+  window.addEventListener("pointerup", (e) => {
     if ((_drawMode || _eraseMode) && _penDown) {
       endDrawStroke(e);
       return;
@@ -244,63 +310,298 @@ function setupPanZoom() {
   let lastTouchDist = 0;
   let lastTouchCenter = null;
 
-  canvas.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 2 && !_drawMode) {
-      isPanning = false;
-      lastTouchDist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-      lastTouchCenter = {
-        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
-      };
-    }
-  }, { passive: true });
-
-  canvas.addEventListener('touchmove', (e) => {
-    if (e.touches.length === 2 && !_drawMode) {
-      e.preventDefault();
-      const dist = Math.hypot(
-        e.touches[0].clientX - e.touches[1].clientX,
-        e.touches[0].clientY - e.touches[1].clientY,
-      );
-      if (lastTouchDist > 0) {
-        const rect = canvas.getBoundingClientRect();
-        const cx = lastTouchCenter.x - rect.left;
-        const cy = lastTouchCenter.y - rect.top;
-        const oldScale = _mapContainer.scale.x;
-        const newScale = Math.min(Math.max(oldScale * (dist / lastTouchDist), 0.05), 20);
-        const worldX = (cx - _mapContainer.position.x) / oldScale;
-        const worldY = (cy - _mapContainer.position.y) / oldScale;
-        _mapContainer.scale.set(newScale);
-        _mapContainer.position.set(cx - worldX * newScale, cy - worldY * newScale);
+  canvas.addEventListener(
+    "touchstart",
+    (e) => {
+      if (e.touches.length === 2 && !_drawMode) {
+        isPanning = false;
+        lastTouchDist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY,
+        );
+        lastTouchCenter = {
+          x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+          y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+        };
       }
-      lastTouchDist = dist;
-    }
-  }, { passive: false });
+    },
+    { passive: true },
+  );
 
-  canvas.addEventListener('touchend', () => {
+  canvas.addEventListener(
+    "touchmove",
+    (e) => {
+      if (e.touches.length === 2 && !_drawMode) {
+        e.preventDefault();
+        const dist = Math.hypot(
+          e.touches[0].clientX - e.touches[1].clientX,
+          e.touches[0].clientY - e.touches[1].clientY,
+        );
+        if (lastTouchDist > 0) {
+          const rect = canvas.getBoundingClientRect();
+          const cx = lastTouchCenter.x - rect.left;
+          const cy = lastTouchCenter.y - rect.top;
+          const oldScale = _mapContainer.scale.x;
+          const newScale = Math.min(
+            Math.max(oldScale * (dist / lastTouchDist), 0.05),
+            20,
+          );
+          const worldX = (cx - _mapContainer.position.x) / oldScale;
+          const worldY = (cy - _mapContainer.position.y) / oldScale;
+          _mapContainer.scale.set(newScale);
+          _mapContainer.position.set(
+            cx - worldX * newScale,
+            cy - worldY * newScale,
+          );
+        }
+        lastTouchDist = dist;
+      }
+    },
+    { passive: false },
+  );
+
+  canvas.addEventListener("touchend", () => {
     lastTouchDist = 0;
     lastTouchCenter = null;
   });
 }
 
 // ── Marker Rendering ─────────────────────────────────────────────────────────
-function renderMarkers() {
-  _markersContainer.removeChildren();
+
+function _markerKey(m) {
+  return `${m.type}_${m.id}`;
+}
+
+function _tickMarkerInterpolation() {
+  // Advance any active position tweens
+  if (_markerTweens.size > 0) {
+    const now = performance.now();
+    for (const [key, tween] of _markerTweens) {
+      const obj = _movingMarkers.get(key);
+      if (!obj) { _markerTweens.delete(key); continue; }
+      const t = Math.min(1, (now - tween.startTime) / tween.duration);
+      obj.position.set(
+        tween.fromX + (tween.toX - tween.fromX) * t,
+        tween.fromY + (tween.toY - tween.fromY) * t,
+      );
+      if (t >= 1) _markerTweens.delete(key);
+    }
+  }
+
+  // Camera-follow: keep the followed marker centered in the viewport
+  if (_followingKey && _mapContainer && _pixiApp) {
+    const obj = _movingMarkers.get(_followingKey);
+    if (!obj) {
+      // The followed marker disappeared (e.g. player went offline) — release
+      clearFollow();
+      return;
+    }
+    const scale = _mapContainer.scale.x;
+    const vw = _pixiApp.screen.width;
+    const vh = _pixiApp.screen.height;
+    _mapContainer.position.set(
+      vw / 2 - obj.position.x * scale,
+      vh / 2 - obj.position.y * scale,
+    );
+  }
+}
+
+function setFollow(key, label) {
+  _followingKey = key;
+  _followingLabel = label || "";
+  _updateFollowBanner();
+}
+
+function clearFollow() {
+  _followingKey = null;
+  _followingLabel = "";
+  _updateFollowBanner();
+}
+
+function _updateFollowBanner() {
+  const el = document.getElementById("mapFollowBanner");
+  if (!el) return;
+  if (_followingKey) {
+    el.style.display = "";
+    el.querySelector(".map-follow-name").textContent = _followingLabel;
+  } else {
+    el.style.display = "none";
+  }
+}
+
+function makeMovingMarker(m) {
+  let c;
+  let label;
+  if (m.type === "Player") {
+    const profile = _steamProfiles.get(m.steamId) || null;
+    label = profile?.name || m.name || "Player";
+    c = makePlayerMarker(label, profile?.avatar || null);
+    c._needsAvatarUpdate = !profile?.avatar;
+  } else {
+    // PatrolHelicopter / CH47 / CargoShip: dot + always-visible label
+    const info = MARKER_TYPES[m.type] || { label: "Unknown", color: 0x888888 };
+    const dotSize = 5;
+    label = m.name || info.label;
+    c = new PIXI.Container();
+    const dot = new PIXI.Graphics();
+    dot.beginFill(info.color);
+    dot.lineStyle(1, 0xffffff, 0.5);
+    dot.drawCircle(0, 0, dotSize);
+    dot.endFill();
+    c.addChild(dot);
+    const text = new PIXI.Text(label, {
+      fontSize: 11,
+      fontFamily: "Segoe UI, system-ui, sans-serif",
+      fill: 0xffffff,
+      fontWeight: "700",
+      dropShadow: true,
+      dropShadowColor: 0x000000,
+      dropShadowBlur: 4,
+      dropShadowDistance: 0,
+    });
+    text.anchor.set(0.5, 0);
+    text.position.set(0, dotSize + 3);
+    c.addChild(text);
+    c.interactive = true;
+    c.hitArea = new PIXI.Circle(0, 0, Math.max(dotSize + 4, 12));
+  }
+  c.cursor = "pointer";
+  // Click to toggle follow on this marker
+  const key = _markerKey(m);
+  c.on("pointertap", (e) => {
+    e.stopPropagation && e.stopPropagation();
+    if (_followingKey === key) clearFollow();
+    else setFollow(key, label);
+  });
+  return c;
+}
+
+function makePlayerMarker(name, avatarUrl) {
+  const container = new PIXI.Container();
+  const size = 28;
+  const ringColor = 0x4ade80;
+
+  // Outer ring + dark backing in case the avatar texture hasn't resolved yet
+  const ring = new PIXI.Graphics();
+  ring.lineStyle(2, ringColor, 1);
+  ring.beginFill(0x111117);
+  ring.drawCircle(0, 0, size / 2);
+  ring.endFill();
+  container.addChild(ring);
+
+  if (avatarUrl) {
+    const sprite = PIXI.Sprite.from(avatarUrl);
+    sprite.width = size - 2;
+    sprite.height = size - 2;
+    sprite.anchor.set(0.5);
+    // Clip the avatar to a circle inside the ring
+    const mask = new PIXI.Graphics();
+    mask.beginFill(0xffffff);
+    mask.drawCircle(0, 0, (size - 2) / 2);
+    mask.endFill();
+    container.addChild(mask);
+    sprite.mask = mask;
+    container.addChild(sprite);
+  } else {
+    // No avatar yet — show solid colored dot inside the ring
+    const dot = new PIXI.Graphics();
+    dot.beginFill(ringColor);
+    dot.drawCircle(0, 0, (size - 2) / 2);
+    dot.endFill();
+    container.addChild(dot);
+  }
+
+  if (name) {
+    const label = new PIXI.Text(name, {
+      fontSize: 11,
+      fontFamily: "Segoe UI, system-ui, sans-serif",
+      fill: 0xffffff,
+      fontWeight: "700",
+      dropShadow: true,
+      dropShadowColor: 0x000000,
+      dropShadowBlur: 4,
+      dropShadowDistance: 0,
+    });
+    label.anchor.set(0.5, 0);
+    label.position.set(0, size / 2 + 3);
+    container.addChild(label);
+  }
+
+  container.interactive = true;
+  container.hitArea = new PIXI.Circle(0, 0, size / 2);
+  return container;
+}
+
+async function renderMarkers() {
+  if (!_staticMarkersContainer || !_movingMarkersContainer || !_mapMarkers || !_mapMeta) return;
+
+  // Pre-fetch Steam profiles so player markers come up with avatars in one shot
+  const playerSteamIds = [
+    ...new Set(
+      _mapMarkers
+        .filter((m) => m.type === "Player" && m.steamId)
+        .map((m) => m.steamId),
+    ),
+  ];
+  await Promise.all(playerSteamIds.map(getSteamProfile));
   if (!_mapMarkers || !_mapMeta) return;
 
-  const countEl = document.getElementById('mapMarkerCount');
+  // Static markers: wipe and rebuild
+  _staticMarkersContainer.removeChildren();
+
+  const seenMovingKeys = new Set();
   let count = 0;
 
-  for (let i = 0; i < _mapMarkers.length; i++) {
-    const m = _mapMarkers[i];
-    const info = MARKER_TYPES[m.type] || { label: 'Unknown', color: 0x888888 };
+  for (const m of _mapMarkers) {
     const pos = worldToPixel(m.x, m.y);
 
-    if (m.type === 'GenericRadius') {
-      // Radius marker
+    // ── Moving markers: persist container, schedule position tween ──────────
+    if (MOVING_TYPES.has(m.type)) {
+      const key = _markerKey(m);
+      seenMovingKeys.add(key);
+      let obj = _movingMarkers.get(key);
+
+      // If we made a player marker without an avatar earlier and now have one,
+      // recreate so the avatar shows up
+      const haveAvatarNow = m.type === "Player" && _steamProfiles.get(m.steamId)?.avatar;
+      if (obj && obj._needsAvatarUpdate && haveAvatarNow) {
+        const oldX = obj.position.x;
+        const oldY = obj.position.y;
+        _movingMarkersContainer.removeChild(obj);
+        obj.destroy({ children: true });
+        obj = makeMovingMarker(m);
+        obj.position.set(oldX, oldY);
+        _movingMarkersContainer.addChild(obj);
+        _movingMarkers.set(key, obj);
+      }
+
+      if (!obj) {
+        obj = makeMovingMarker(m);
+        obj.position.set(pos.x, pos.y); // first sight: drop at position, no tween
+        _movingMarkersContainer.addChild(obj);
+        _movingMarkers.set(key, obj);
+      } else {
+        // Tween from where the marker is currently displayed (which itself may
+        // be mid-tween) to the new position
+        _markerTweens.set(key, {
+          fromX: obj.position.x,
+          fromY: obj.position.y,
+          toX: pos.x,
+          toY: pos.y,
+          startTime: performance.now(),
+          // Match the refresh cadence so each tween finishes right as the
+          // next data tick arrives — continuous, lag-free motion.
+          duration: MARKER_REFRESH_INTERVAL_MS,
+        });
+      }
+      count++;
+      continue;
+    }
+
+    // ── Static markers ──────────────────────────────────────────────────────
+    const info = MARKER_TYPES[m.type] || { label: "Unknown", color: 0x888888 };
+
+    if (m.type === "GenericRadius") {
       const imgW = _mapSprite.texture.width;
       const margin = _mapMeta.oceanMargin || 0;
       const mapSize = _mapMeta.mapSize || 1;
@@ -312,19 +613,18 @@ function renderMarkers() {
       circle.drawCircle(0, 0, r);
       circle.endFill();
       circle.position.set(pos.x, pos.y);
-      _markersContainer.addChild(circle);
+      _staticMarkersContainer.addChild(circle);
+      count++;
       continue;
     }
 
-    const isVending = m.type === 'VendingMachine';
+    const isVending = m.type === "VendingMachine";
     const dotSize = isVending ? 6 : 4;
     const name = m.name || info.label;
 
-    // Marker container
     const markerC = new PIXI.Container();
     markerC.position.set(pos.x, pos.y);
 
-    // Dot
     const dot = new PIXI.Graphics();
     dot.beginFill(info.color);
     dot.lineStyle(1, 0xffffff, 0.4);
@@ -332,12 +632,11 @@ function renderMarkers() {
     dot.endFill();
     markerC.addChild(dot);
 
-    // Label
-    const label = new PIXI.Text(name + (m.outOfStock ? ' (Sold Out)' : ''), {
+    const label = new PIXI.Text(name + (m.outOfStock ? " (Sold Out)" : ""), {
       fontSize: 11,
-      fontFamily: 'Segoe UI, system-ui, sans-serif',
+      fontFamily: "Segoe UI, system-ui, sans-serif",
       fill: 0xffffff,
-      fontWeight: '600',
+      fontWeight: "600",
       dropShadow: true,
       dropShadowColor: 0x000000,
       dropShadowBlur: 3,
@@ -348,52 +647,61 @@ function renderMarkers() {
     label.visible = false;
     markerC.addChild(label);
 
-    // Interaction
     markerC.interactive = true;
-    markerC.cursor = isVending ? 'pointer' : 'default';
+    markerC.cursor = isVending ? "pointer" : "default";
     markerC.hitArea = new PIXI.Circle(0, 0, Math.max(dotSize + 4, 10));
 
-    markerC.on('pointerover', () => { label.visible = true; });
-    markerC.on('pointerout', () => { label.visible = false; });
+    markerC.on("pointerover", () => { label.visible = true; });
+    markerC.on("pointerout", () => { label.visible = false; });
 
     if (isVending && m.sellOrders && m.sellOrders.length > 0) {
       const markerData = m;
-      markerC.on('pointertap', (e) => {
-        const global = _pixiApp.view.getBoundingClientRect();
-        const sx = e.global.x;
-        const sy = e.global.y;
-        showVendingPopup(markerData, sx, sy);
+      markerC.on("pointertap", (e) => {
+        showVendingPopup(markerData, e.global.x, e.global.y);
       });
     }
 
-    _markersContainer.addChild(markerC);
+    _staticMarkersContainer.addChild(markerC);
     count++;
   }
 
-  if (countEl) countEl.textContent = `${count} marker${count !== 1 ? 's' : ''}`;
+  // Drop moving markers we no longer see
+  for (const [key, obj] of _movingMarkers) {
+    if (!seenMovingKeys.has(key)) {
+      _movingMarkers.delete(key);
+      _markerTweens.delete(key);
+      _movingMarkersContainer.removeChild(obj);
+      obj.destroy({ children: true });
+    }
+  }
+
+  const countEl = document.getElementById("mapMarkerCount");
+  if (countEl) countEl.textContent = `${count} marker${count !== 1 ? "s" : ""}`;
 }
 
 // ── Vending Popup ────────────────────────────────────────────────────────────
 function showVendingPopup(m, screenX, screenY) {
   closeVendingPopup();
 
-  const overlay = document.getElementById('vendingPopupOverlay');
+  const overlay = document.getElementById("vendingPopupOverlay");
   if (!overlay) return;
 
-  const name = m.name || 'Vending Machine';
+  const name = m.name || "Vending Machine";
   const orders = m.sellOrders || [];
 
-  let itemsHtml = '';
+  let itemsHtml = "";
   for (const order of orders) {
     const sellName = getItemName(order.itemId);
     const sellShort = getItemShortname(order.itemId);
     const costName = getItemName(order.currencyId);
     const costShort = getItemShortname(order.currencyId);
     const soldOut = (order.amountInStock || 0) <= 0;
-    const bpBadge = order.itemIsBlueprint ? '<span class="item-bp">BP</span> ' : '';
+    const bpBadge = order.itemIsBlueprint
+      ? '<span class="item-bp">BP</span> '
+      : "";
 
     itemsHtml += `
-      <div class="vending-order${soldOut ? ' vending-order--soldout' : ''}">
+      <div class="vending-order${soldOut ? " vending-order--soldout" : ""}">
         <div class="vending-order-sell">
           ${itemIconHTML(sellShort, 28)}
           <div>
@@ -413,10 +721,10 @@ function showVendingPopup(m, screenX, screenY) {
       </div>`;
   }
 
-  const popup = document.createElement('div');
-  popup.id = 'vendingPopup';
-  popup.className = 'vending-popup';
-  popup.style.pointerEvents = 'auto';
+  const popup = document.createElement("div");
+  popup.id = "vendingPopup";
+  popup.className = "vending-popup";
+  popup.style.pointerEvents = "auto";
   popup.innerHTML = `
     <div class="vending-popup-header">
       <span class="vending-popup-name">${escHtml(name)}</span>
@@ -425,14 +733,16 @@ function showVendingPopup(m, screenX, screenY) {
     <div class="vending-popup-orders">${itemsHtml || '<div style="color:var(--text-muted);padding:8px">No items listed</div>'}</div>`;
 
   // Position near click
-  const viewportRect = document.getElementById('mapViewport').getBoundingClientRect();
+  const viewportRect = document
+    .getElementById("mapViewport")
+    .getBoundingClientRect();
   let left = screenX;
   let top = screenY - 10;
 
-  popup.style.position = 'absolute';
-  popup.style.left = left + 'px';
-  popup.style.top = top + 'px';
-  popup.style.transform = 'translateY(-100%)';
+  popup.style.position = "absolute";
+  popup.style.left = left + "px";
+  popup.style.top = top + "px";
+  popup.style.transform = "translateY(-100%)";
 
   overlay.appendChild(popup);
 
@@ -440,16 +750,16 @@ function showVendingPopup(m, screenX, screenY) {
   requestAnimationFrame(() => {
     const pr = popup.getBoundingClientRect();
     const vr = viewportRect;
-    if (pr.right > vr.right) popup.style.left = (left - pr.width) + 'px';
+    if (pr.right > vr.right) popup.style.left = left - pr.width + "px";
     if (pr.top < vr.top) {
-      popup.style.top = (screenY + 10) + 'px';
-      popup.style.transform = 'none';
+      popup.style.top = screenY + 10 + "px";
+      popup.style.transform = "none";
     }
   });
 }
 
 function closeVendingPopup() {
-  const el = document.getElementById('vendingPopup');
+  const el = document.getElementById("vendingPopup");
   if (el) el.remove();
 }
 
@@ -457,7 +767,7 @@ function closeVendingPopup() {
 function updateDrawCursor() {
   if (!_pixiApp) return;
   const active = _drawMode || _eraseMode;
-  _pixiApp.view.style.cursor = active ? 'none' : 'grab';
+  _pixiApp.view.style.cursor = active ? "none" : "grab";
   if (_brushCursor) _brushCursor.visible = active;
 }
 
@@ -480,13 +790,17 @@ function updateBrushCursor(screenX, screenY) {
 function toggleDrawMode() {
   _drawMode = !_drawMode;
   if (_drawMode) _eraseMode = false;
-  document.getElementById('mapDrawToggle')?.classList.toggle('active', _drawMode);
-  document.getElementById('mapEraseToggle')?.classList.toggle('active', _eraseMode);
+  document
+    .getElementById("mapDrawToggle")
+    ?.classList.toggle("active", _drawMode);
+  document
+    .getElementById("mapEraseToggle")
+    ?.classList.toggle("active", _eraseMode);
   updateDrawCursor();
 }
 
 async function toggleMapFullscreen() {
-  const wrapper = document.getElementById('mapWrapper');
+  const wrapper = document.getElementById("mapWrapper");
   if (!wrapper) return;
   if (document.fullscreenElement) {
     await document.exitFullscreen();
@@ -497,15 +811,19 @@ async function toggleMapFullscreen() {
 
 // When the browser enters/exits fullscreen, the wrapper's size changes; Pixi
 // only listens to window resize, so we have to nudge it.
-document.addEventListener('fullscreenchange', () => {
+document.addEventListener("fullscreenchange", () => {
   if (_pixiApp) _pixiApp.resize();
 });
 
 function toggleEraseMode() {
   _eraseMode = !_eraseMode;
   if (_eraseMode) _drawMode = false;
-  document.getElementById('mapEraseToggle')?.classList.toggle('active', _eraseMode);
-  document.getElementById('mapDrawToggle')?.classList.toggle('active', _drawMode);
+  document
+    .getElementById("mapEraseToggle")
+    ?.classList.toggle("active", _eraseMode);
+  document
+    .getElementById("mapDrawToggle")
+    ?.classList.toggle("active", _drawMode);
   updateDrawCursor();
 }
 
@@ -534,17 +852,24 @@ function brushWorldSize() {
 function getBrushTexture() {
   if (_brushTexture) return _brushTexture;
   const size = 128;
-  const canvas = document.createElement('canvas');
+  const canvas = document.createElement("canvas");
   canvas.width = size;
   canvas.height = size;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext("2d");
   // Solid core that fades to transparent at the rim. The 0.6 stop keeps the
   // center fully opaque, then the alpha falls off over the outer 40% for a
   // soft edge that still renders as a clearly-defined stroke.
-  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
-  grad.addColorStop(0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.6, 'rgba(255,255,255,1)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  const grad = ctx.createRadialGradient(
+    size / 2,
+    size / 2,
+    0,
+    size / 2,
+    size / 2,
+    size / 2,
+  );
+  grad.addColorStop(0, "rgba(255,255,255,1)");
+  grad.addColorStop(0.6, "rgba(255,255,255,1)");
+  grad.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   _brushTexture = PIXI.Texture.from(canvas);
@@ -570,7 +895,10 @@ function _makeStamp(x, y, r) {
 function paintAt(x, y) {
   if (!_drawRenderTexture || !_pixiApp) return;
   const sprite = _makeStamp(x, y, brushWorldSize());
-  _pixiApp.renderer.render(sprite, { renderTexture: _drawRenderTexture, clear: false });
+  _pixiApp.renderer.render(sprite, {
+    renderTexture: _drawRenderTexture,
+    clear: false,
+  });
   sprite.destroy();
   _drawDirty = true;
 }
@@ -590,7 +918,10 @@ function paintLine(x0, y0, x1, y1) {
     const t = i / steps;
     container.addChild(_makeStamp(x0 + dx * t, y0 + dy * t, r));
   }
-  _pixiApp.renderer.render(container, { renderTexture: _drawRenderTexture, clear: false });
+  _pixiApp.renderer.render(container, {
+    renderTexture: _drawRenderTexture,
+    clear: false,
+  });
   container.destroy({ children: true });
   _drawDirty = true;
 }
@@ -635,16 +966,18 @@ async function saveDrawing() {
     // Snapshot the GPU texture back to a CPU canvas — the only readback in the
     // pipeline, and it only happens on the debounced save (~once per stroke).
     const canvas = _pixiApp.renderer.extract.canvas(_drawRenderTexture);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('toBlob returned null');
-    const res = await fetch('/api/map/drawing', {
-      method: 'POST',
-      headers: { 'Content-Type': 'image/png', 'X-Save-Id': saveId },
+    const blob = await new Promise((resolve) =>
+      canvas.toBlob(resolve, "image/png"),
+    );
+    if (!blob) throw new Error("toBlob returned null");
+    const res = await fetch("/api/map/drawing", {
+      method: "POST",
+      headers: { "Content-Type": "image/png", "X-Save-Id": saveId },
       body: blob,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
   } catch (e) {
-    console.error('Failed to save drawing:', e);
+    console.error("Failed to save drawing:", e);
     _pendingSaveIds.delete(saveId);
   }
 }
@@ -652,10 +985,13 @@ async function saveDrawing() {
 async function loadDrawing() {
   if (!_drawRenderTexture || !_pixiApp) return;
   try {
-    const res = await fetch('/api/map/drawing', { cache: 'no-cache' });
+    const res = await fetch("/api/map/drawing", { cache: "no-cache" });
     if (res.status === 204) {
       // No drawing yet on server — clear local texture
-      _pixiApp.renderer.render(new PIXI.Container(), { renderTexture: _drawRenderTexture, clear: true });
+      _pixiApp.renderer.render(new PIXI.Container(), {
+        renderTexture: _drawRenderTexture,
+        clear: true,
+      });
       return;
     }
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -670,11 +1006,14 @@ async function loadDrawing() {
     URL.revokeObjectURL(url);
     const tex = PIXI.Texture.from(img);
     const sprite = new PIXI.Sprite(tex);
-    _pixiApp.renderer.render(sprite, { renderTexture: _drawRenderTexture, clear: true });
+    _pixiApp.renderer.render(sprite, {
+      renderTexture: _drawRenderTexture,
+      clear: true,
+    });
     sprite.destroy();
     tex.destroy(true);
   } catch (e) {
-    console.error('Failed to load drawing:', e);
+    console.error("Failed to load drawing:", e);
   }
 }
 
@@ -689,7 +1028,10 @@ async function onDrawingUpdated(saveId) {
 
 function clearDrawings() {
   if (_drawRenderTexture && _pixiApp) {
-    _pixiApp.renderer.render(new PIXI.Container(), { renderTexture: _drawRenderTexture, clear: true });
+    _pixiApp.renderer.render(new PIXI.Container(), {
+      renderTexture: _drawRenderTexture,
+      clear: true,
+    });
     _drawDirty = true;
     scheduleCanvasSave();
   }
@@ -697,23 +1039,25 @@ function clearDrawings() {
 
 // ── Public API ───────────────────────────────────────────────────────────────
 async function loadMap() {
-  const container = document.getElementById('mapContainer');
-  if (state.status !== 'connected') {
+  const container = document.getElementById("mapContainer");
+  if (state.status !== "connected") {
     destroyMap();
-    container.innerHTML = '<div class="empty-state"><div class="icon">🗺️</div><h3>Not connected</h3><p>Connect to a server to view the map.</p></div>';
+    container.innerHTML =
+      '<div class="empty-state"><div class="icon">🗺️</div><h3>Not connected</h3><p>Connect to a server to view the map.</p></div>';
     return;
   }
 
   try {
     if (!_pixiApp) {
-      container.innerHTML = '<div class="empty-state"><div class="icon">🗺️</div><h3>Loading map...</h3><p>Fetching map data from server.</p></div>';
+      container.innerHTML =
+        '<div class="empty-state"><div class="icon">🗺️</div><h3>Loading map...</h3><p>Fetching map data from server.</p></div>';
       // Init PixiJS app first (sets up DOM structure)
       await initPixiApp();
       // Then load image + data in parallel
       const [, markersRes, metaRes] = await Promise.all([
         loadMapImage(),
-        api('GET', '/api/map/markers'),
-        api('GET', '/api/map/meta'),
+        api("GET", "/api/map/markers"),
+        api("GET", "/api/map/meta"),
       ]);
       _mapMeta = metaRes;
       _mapMarkers = markersRes.markers || [];
@@ -721,48 +1065,88 @@ async function loadMap() {
       // map cache that the drawing key depends on)
       await loadDrawing();
       console.log(`Map loaded: ${_mapMarkers.length} markers`);
+      startMarkerAutoRefresh();
     } else {
       // Already loaded — force a resize in case the viewport size changed while
       // the tab was hidden (Pixi only resizes on window events, not element show)
       _pixiApp.resize();
       const [markersRes, metaRes] = await Promise.all([
-        api('GET', '/api/map/markers'),
-        api('GET', '/api/map/meta'),
+        api("GET", "/api/map/markers"),
+        api("GET", "/api/map/meta"),
       ]);
       _mapMeta = metaRes;
       _mapMarkers = markersRes.markers || [];
       console.log(`Map refreshed: ${_mapMarkers.length} markers`);
     }
-    renderMarkers();
+    await renderMarkers();
   } catch (e) {
     if (!_mapLoaded) {
       destroyMap();
       container.innerHTML = `<div class="empty-state"><div class="icon">🗺️</div><h3>Failed to load map</h3><p>${escHtml(e.message)}</p></div>`;
     }
-    console.error('Map load error:', e, e?.stack);
+    console.error("Map load error:", e, e?.stack);
   }
 }
 
 async function refreshMapMarkers() {
-  const btn = document.querySelector('.map-toolbar button[onclick="refreshMapMarkers()"]');
-  if (btn) { btn.disabled = true; btn.textContent = '↻ Refreshing…'; }
+  const btn = document.querySelector(
+    '.map-toolbar button[onclick="refreshMapMarkers()"]',
+  );
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "⟳";
+  }
   try {
-    const res = await api('GET', '/api/map/markers');
+    const res = await api("GET", "/api/map/markers");
     _mapMarkers = res.markers || [];
     if (_pixiApp) _pixiApp.resize();
-    renderMarkers();
+    await renderMarkers();
     console.log(`Markers refreshed: ${_mapMarkers.length}`);
   } catch (e) {
-    console.error('Failed to refresh markers:', e);
+    console.error("Failed to refresh markers:", e);
     alert(`Failed to refresh markers: ${e.message}`);
   } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '↻ Refresh'; }
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "↻";
+    }
   }
+}
+
+// Quiet auto-refresh — no button feedback or alerts, used by the timer.
+async function _refreshMarkersQuiet() {
+  try {
+    const res = await api("GET", "/api/map/markers");
+    _mapMarkers = res.markers || [];
+    await renderMarkers();
+  } catch (e) {
+    console.warn("Auto-refresh markers failed:", e.message);
+  }
+}
+
+// Auto-refresh markers every 15s, but only while the map tab is visible AND
+// the browser tab isn't hidden AND we're connected. This keeps player
+// positions fresh without burning rate-limit tokens for nobody to see.
+let _markerRefreshTimer = null;
+const MARKER_REFRESH_INTERVAL_MS = 3000;
+function startMarkerAutoRefresh() {
+  stopMarkerAutoRefresh();
+  _markerRefreshTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (!document.body.classList.contains("section-map")) return;
+    if (!_pixiApp || state.status !== "connected") return;
+    _refreshMarkersQuiet();
+  }, MARKER_REFRESH_INTERVAL_MS);
+}
+function stopMarkerAutoRefresh() {
+  if (_markerRefreshTimer) clearInterval(_markerRefreshTimer);
+  _markerRefreshTimer = null;
 }
 
 function destroyMap() {
   closeVendingPopup();
   clearTimeout(_saveTimer);
+  stopMarkerAutoRefresh();
   // Flush any pending dirty paint before tearing down
   if (_drawDirty) saveDrawing();
   if (_drawRenderTexture) {
@@ -770,12 +1154,20 @@ function destroyMap() {
     _drawRenderTexture = null;
   }
   if (_pixiApp) {
-    _pixiApp.destroy(true, { children: true, texture: true, baseTexture: true });
+    _pixiApp.destroy(true, {
+      children: true,
+      texture: true,
+      baseTexture: true,
+    });
     _pixiApp = null;
   }
   _mapContainer = null;
   _mapSprite = null;
   _markersContainer = null;
+  _staticMarkersContainer = null;
+  _movingMarkersContainer = null;
+  _movingMarkers.clear();
+  _markerTweens.clear();
   _drawSprite = null;
   _mapLoaded = false;
   _mapMarkers = null;

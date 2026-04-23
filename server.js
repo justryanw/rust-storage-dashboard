@@ -1018,6 +1018,47 @@ app.post('/api/map/drawing', express.raw({ type: 'image/png', limit: '20mb' }), 
     }
 });
 
+// ── Steam profile lookup ─────────────────────────────────────────────────────
+// Server-side proxy + cache for Steam Community profile XML. Avoids client
+// CORS issues, dedupes lookups across all connected clients, and keeps a 24h
+// cache so we don't hammer Steam for repeat marker refreshes.
+const _steamProfileCache = new Map(); // steamId -> { name, avatar, avatarFull, expiresAt }
+const STEAM_PROFILE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function _parseSteamXml(xml) {
+    const grab = (tag) => {
+        const m = xml.match(new RegExp(`<${tag}>(?:<!\\[CDATA\\[)?(.*?)(?:\\]\\]>)?</${tag}>`, 's'));
+        return m ? m[1].trim() : null;
+    };
+    return {
+        name: grab('steamID'),
+        avatar: grab('avatarMedium') || grab('avatarIcon'),
+        avatarFull: grab('avatarFull'),
+    };
+}
+
+app.get('/api/steam/profile/:steamId', async (req, res) => {
+    const id = req.params.steamId;
+    if (!/^\d{17}$/.test(id)) return res.status(400).json({ error: 'Invalid steamId' });
+    const now = Date.now();
+    const cached = _steamProfileCache.get(id);
+    if (cached && cached.expiresAt > now) return res.json(cached);
+    try {
+        const r = await fetch(`https://steamcommunity.com/profiles/${id}?xml=1`, {
+            headers: { 'User-Agent': 'rust-plus-dashboard' },
+        });
+        if (!r.ok) throw new Error(`Steam HTTP ${r.status}`);
+        const xml = await r.text();
+        const parsed = _parseSteamXml(xml);
+        const profile = { ...parsed, steamId: id, expiresAt: now + STEAM_PROFILE_TTL_MS };
+        _steamProfileCache.set(id, profile);
+        res.json(profile);
+    } catch (e) {
+        console.error(`/api/steam/profile/${id} error:`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/map/info', async (_, res) => {
     if (connectionStatus !== 'connected' || !rustplus) {
         return res.status(400).json({ error: 'Not connected' });
