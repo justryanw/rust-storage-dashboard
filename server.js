@@ -22,7 +22,9 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/vendor/pixi.js', express.static(path.join(__dirname, 'node_modules/pixi.js/dist/pixi.min.js')));
 
-const DATA_DIR = process.env.RUST_STORAGE_DASHBOARD_DATA_DIR || __dirname;
+const DATA_DIR = process.env.RUST_PLUS_DASHBOARD_DATA_DIR
+    || process.env.RUST_STORAGE_DASHBOARD_DATA_DIR  // legacy
+    || __dirname;
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const DRAWINGS_DIR = path.join(DATA_DIR, 'drawings');
 const ITEMS_PATH = path.join(__dirname, 'items.json');
@@ -1058,7 +1060,7 @@ wss.on('connection', (ws) => {
 
 const PORT = process.env.PORT || 7867;
 server.listen(PORT, '::', () => {
-    console.log(`Rust Storage Dashboard → http://localhost:${PORT}`);
+    console.log(`Rust+ Dashboard → http://localhost:${PORT}`);
     // Auto-start FCM pairing listener if credentials are available
     if (config.gcmAndroidId && config.gcmSecurityToken) {
         startPairing().catch(e => console.warn('Pairing listener failed to start:', e.message));

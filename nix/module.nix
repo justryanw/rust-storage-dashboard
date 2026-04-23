@@ -9,13 +9,13 @@ let
     types
     ;
 
-  cfg = config.services.rust-storage-dashboard;
+  cfg = config.services.rust-plus-dashboard;
 in
 {
-  options.services.rust-storage-dashboard = {
-    enable = mkEnableOption "Rust+ storage monitor dashboard";
+  options.services.rust-plus-dashboard = {
+    enable = mkEnableOption "Rust+ Dashboard";
 
-    package = mkPackageOption pkgs "rust-storage-dashboard" { };
+    package = mkPackageOption pkgs "rust-plus-dashboard" { };
 
     port = mkOption {
       type = types.port;
@@ -25,7 +25,7 @@ in
 
     dataDir = mkOption {
       type = types.path;
-      default = "/var/lib/rust-storage-dashboard";
+      default = "/var/lib/rust-plus-dashboard";
       description = "Directory used for persistent state (config.json).";
     };
 
@@ -37,15 +37,15 @@ in
   };
 
   config = mkIf cfg.enable {
-    systemd.services.rust-storage-dashboard = {
-      description = "Rust+ Storage Dashboard";
+    systemd.services.rust-plus-dashboard = {
+      description = "Rust+ Dashboard";
       wantedBy = [ "multi-user.target" ];
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
 
       environment = {
         PORT = toString cfg.port;
-        RUST_STORAGE_DASHBOARD_DATA_DIR = cfg.dataDir;
+        RUST_PLUS_DASHBOARD_DATA_DIR = cfg.dataDir;
         NODE_ENV = "production";
       };
 
@@ -54,13 +54,13 @@ in
         WorkingDirectory = cfg.dataDir;
 
         # State
-        StateDirectory = "rust-storage-dashboard";
+        StateDirectory = "rust-plus-dashboard";
         StateDirectoryMode = "0750";
 
         # Identity
         DynamicUser = true;
-        User = "rust-storage-dashboard";
-        Group = "rust-storage-dashboard";
+        User = "rust-plus-dashboard";
+        Group = "rust-plus-dashboard";
 
         # Restart
         Restart = "on-failure";

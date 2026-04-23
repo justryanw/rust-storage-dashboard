@@ -6,7 +6,7 @@
 }:
 
 buildNpmPackage {
-  pname = "rust-storage-dashboard";
+  pname = "rust-plus-dashboard";
   version = "1.0.0";
 
   src = lib.cleanSource ../.;
@@ -20,24 +20,24 @@ buildNpmPackage {
   installPhase = ''
     runHook preInstall
 
-    mkdir -p $out/lib/rust-storage-dashboard $out/bin
+    mkdir -p $out/lib/rust-plus-dashboard $out/bin
 
-    cp -r . $out/lib/rust-storage-dashboard/
+    cp -r . $out/lib/rust-plus-dashboard/
 
     # Patch itemIsBlueprint to optional — Rust+ doesn't always include it
     sed -i 's/required bool itemIsBlueprint/optional bool itemIsBlueprint/g' \
-      $out/lib/rust-storage-dashboard/node_modules/@liamcottle/rustplus.js/rustplus.proto
+      $out/lib/rust-plus-dashboard/node_modules/@liamcottle/rustplus.js/rustplus.proto
 
-    makeWrapper ${lib.getExe nodejs} $out/bin/rust-storage-dashboard \
-      --add-flags "$out/lib/rust-storage-dashboard/server.js"
+    makeWrapper ${lib.getExe nodejs} $out/bin/rust-plus-dashboard \
+      --add-flags "$out/lib/rust-plus-dashboard/server.js"
 
     runHook postInstall
   '';
 
   meta = {
-    description = "Rust+ storage monitor combined inventory dashboard";
+    description = "Rust+ dashboard — storage, switches, and live map";
     license = lib.licenses.mit;
-    mainProgram = "rust-storage-dashboard";
+    mainProgram = "rust-plus-dashboard";
     platforms = lib.platforms.linux;
   };
 }

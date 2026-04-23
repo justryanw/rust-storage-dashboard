@@ -1,7 +1,7 @@
 {
-  "name": "rust-storage-dashboard",
+  "name": "rust-plus-dashboard",
   "version": "1.0.0",
-  "description": "Rust+ storage monitor combined inventory dashboard",
+  "description": "Rust+ dashboard — storage, switches, and live map",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

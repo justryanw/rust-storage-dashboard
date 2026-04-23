@@ -1,5 +1,5 @@
 {
-  description = "Rust+ storage monitor combined inventory dashboard";
+  description = "Rust+ dashboard — storage, switches, and live map";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -11,18 +11,18 @@
     in
     {
       packages = forAllSystems (system: rec {
-        rust-storage-dashboard = (pkgsFor system).callPackage ./nix/package.nix { };
-        default = rust-storage-dashboard;
+        rust-plus-dashboard = (pkgsFor system).callPackage ./nix/package.nix { };
+        default = rust-plus-dashboard;
       });
 
       nixosModules = rec {
-        rust-storage-dashboard = { pkgs, ... }@args: {
+        rust-plus-dashboard = { pkgs, ... }@args: {
           imports = [ ./nix/module.nix ];
           nixpkgs.overlays = [
-            (_: _: { rust-storage-dashboard = self.packages.${pkgs.system}.default; })
+            (_: _: { rust-plus-dashboard = self.packages.${pkgs.system}.default; })
           ];
         };
-        default = rust-storage-dashboard;
+        default = rust-plus-dashboard;
       };
 
       devShells = forAllSystems (system:
