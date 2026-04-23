@@ -361,8 +361,8 @@ async function fetchEntityInfo(entityId) {
     });
 }
 
-function markConnectionLost() {
-    console.warn('Connection appears lost, disconnecting');
+function markConnectionLost(reason) {
+    console.warn(`Connection appears lost, disconnecting (${reason || 'unknown'})`);
     if (rustplus) { try { rustplus.disconnect(); } catch (_) {} rustplus = null; }
     connectionStatus = 'disconnected';
     connectionError = 'Connection lost';
@@ -428,9 +428,11 @@ async function refreshAllEntities() {
     const entityIds = config.entityIds || [];
     const switchIds = config.switchIds || [];
 
-    // If nothing configured, probe with a lightweight ping instead
+    // Nothing to refresh — trust rustplus's own connection events to detect
+    // dead sockets. Pinging here was the source of a reconnect loop on
+    // configs with no monitors/switches: the ping would fail (e.g. token
+    // bucket race during rapid reconnects) and we'd flap the connection.
     if (entityIds.length === 0 && switchIds.length === 0) {
-        try { await pingServer(); } catch (_) { markConnectionLost(); }
         return;
     }
 
@@ -498,7 +500,7 @@ async function fetchAndApplyEntities(entityIds) {
     // at all). Server-side errors like not_found are successful round-trips and mean
     // the connection is alive — the entities just don't exist on this server.
     if (timeouts === entityIds.length && rateLimited.length === 0) {
-        try { await pingServer(); } catch (_) { markConnectionLost(); }
+        try { await pingServer(); } catch (_) { markConnectionLost('all entity requests timed out and ping failed'); }
         return;
     }
 
