@@ -268,8 +268,14 @@ function showMonitorModal(entityId, fromGroup = null) {
       <span class="monitor-item-name">${escHtml(getItemName(item.itemId))}</span>
       <span class="monitor-item-qty">${item.quantity.toLocaleString()}</span>
     </div>`).join('');
-  // Build inventory grid — one cell per slot
-  const items = m.items || [];
+  // Build inventory grid — one cell per slot.
+  // Sort by item name alphabetically, then by quantity descending within the
+  // same item. Stacks of the same item end up adjacent, largest stack first.
+  const items = (m.items || []).slice().sort((a, b) => {
+    const nameCmp = getItemName(a.itemId).localeCompare(getItemName(b.itemId));
+    if (nameCmp !== 0) return nameCmp;
+    return b.quantity - a.quantity;
+  });
   let gridHTML = '';
   if (cap > 0 && !isRemoved) {
     const cells = [];
